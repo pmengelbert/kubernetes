@@ -176,7 +176,7 @@ func TLSConfigFor(c *Config) (*tls.Config, error) {
 						- for the step 4, see: staging/src/k8s.io/apiserver/pkg/authentication/request/x509/x509.go
 		*/
 
-		tlsConfig.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+		tlsConfig.GetClientCertificate = func(info *tls.CertificateRequestInfo) (*tls.Certificate, error) {
 			// Note: static key/cert data always take precedence over cert
 			// callback.
 			if staticCert != nil {
@@ -187,7 +187,7 @@ func TLSConfigFor(c *Config) (*tls.Config, error) {
 				return dynamicCertLoader()
 			}
 			if c.HasCertCallback() {
-				cert, err := c.TLS.GetCertHolder.GetCert()
+				cert, err := c.TLS.GetCertHolder.GetCert(info.Context())
 				if err != nil {
 					return nil, err
 				}

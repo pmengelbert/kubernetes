@@ -18,6 +18,7 @@ package exec
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -342,7 +343,8 @@ func (r *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 		return r.base.RoundTrip(req)
 	}
 
-	creds, err := r.a.getCreds()
+	reqCtx := req.Context()
+	creds, err := r.a.getCreds(reqCtx)
 	if err != nil {
 		return nil, fmt.Errorf("getting credentials: %v", err)
 	}
@@ -355,7 +357,7 @@ func (r *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 	if res.StatusCode == http.StatusUnauthorized {
-		if err := r.a.maybeRefreshCreds(creds); err != nil {
+		if err := r.a.maybeRefreshCreds(reqCtx, creds); err != nil {
 			klog.Errorf("refreshing credentials: %v", err)
 		}
 	}
@@ -369,15 +371,15 @@ func (a *Authenticator) credsExpired() bool {
 	return a.now().After(a.exp)
 }
 
-func (a *Authenticator) cert() (*tls.Certificate, error) {
-	creds, err := a.getCreds()
+func (a *Authenticator) cert(ctx context.Context) (*tls.Certificate, error) {
+	creds, err := a.getCreds(ctx)
 	if err != nil {
 		return nil, err
 	}
 	return creds.cert, nil
 }
 
-func (a *Authenticator) getCreds() (*credentials, error) {
+func (a *Authenticator) getCreds(ctx context.Context) (*credentials, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -385,7 +387,7 @@ func (a *Authenticator) getCreds() (*credentials, error) {
 		return a.cachedCreds, nil
 	}
 
-	if err := a.refreshCredsLocked(); err != nil {
+	if err := a.refreshCredsLocked(ctx); err != nil {
 		return nil, err
 	}
 
@@ -394,7 +396,7 @@ func (a *Authenticator) getCreds() (*credentials, error) {
 
 // maybeRefreshCreds executes the plugin to force a rotation of the
 // credentials, unless they were rotated already.
-func (a *Authenticator) maybeRefreshCreds(creds *credentials) error {
+func (a *Authenticator) maybeRefreshCreds(ctx context.Context, creds *credentials) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -405,12 +407,12 @@ func (a *Authenticator) maybeRefreshCreds(creds *credentials) error {
 		return nil
 	}
 
-	return a.refreshCredsLocked()
+	return a.refreshCredsLocked(ctx)
 }
 
 // refreshCredsLocked executes the plugin and reads the credentials from
 // stdout. It must be called while holding the Authenticator's mutex.
-func (a *Authenticator) refreshCredsLocked() error {
+func (a *Authenticator) refreshCredsLocked(ctx context.Context) error {
 	interactive, err := a.interactiveFunc()
 	if err != nil {
 		return fmt.Errorf("exec plugin cannot support interactive mode: %w", err)
@@ -433,7 +435,7 @@ func (a *Authenticator) refreshCredsLocked() error {
 	env = append(env, fmt.Sprintf("%s=%s", execInfoEnv, data))
 
 	stdout := &bytes.Buffer{}
-	cmd := exec.Command(a.cmd, a.args...)
+	cmd := exec.CommandContext(ctx, a.cmd, a.args...)
 	cmd.Env = env
 	cmd.Stderr = a.stderr
 	cmd.Stdout = stdout

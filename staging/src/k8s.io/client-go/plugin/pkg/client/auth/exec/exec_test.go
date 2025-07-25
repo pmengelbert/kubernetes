@@ -18,6 +18,7 @@ package exec
 
 import (
 	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -813,7 +814,7 @@ func TestRefreshCreds(t *testing.T) {
 			a.stderr = stderr
 			a.environ = func() []string { return nil }
 
-			if err := a.refreshCredsLocked(); err != nil {
+			if err := a.refreshCredsLocked(t.Context()); err != nil {
 				if !test.wantErr {
 					t.Errorf("get token %v", err)
 				} else if !strings.Contains(err.Error(), test.wantErrSubstr) {
@@ -1002,7 +1003,7 @@ func TestAuthorizationHeaderPresentCancelsExecAction(t *testing.T) {
 
 			// UpdateTransportConfig returns error on existing TLS certificate callback, unless a bearer token is present in the
 			// transport config, in which case it takes precedence
-			cert := func() (*tls.Certificate, error) {
+			cert := func(_ context.Context) (*tls.Certificate, error) {
 				return nil, nil
 			}
 			tc := &transport.Config{TLS: transport.TLSConfig{Insecure: true, GetCertHolder: &transport.GetCertHolder{GetCert: cert}}}
@@ -1209,7 +1210,7 @@ func TestInstallHintRateLimit(t *testing.T) {
 
 			count := 0
 			for i := 0; i < test.calls; i++ {
-				err := a.refreshCredsLocked()
+				err := a.refreshCredsLocked(t.Context())
 				if strings.Contains(err.Error(), c.InstallHint) {
 					count++
 				}
