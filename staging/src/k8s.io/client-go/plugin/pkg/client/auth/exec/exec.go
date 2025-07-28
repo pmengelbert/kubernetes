@@ -444,6 +444,10 @@ func (a *Authenticator) refreshCredsLocked(ctx context.Context) error {
 	}
 
 	err = cmd.Run()
+	if err != nil {
+		fmt.Errorf("run exec plugin: %v", err)
+	}
+
 	incrementCallsMetric(err)
 	if err != nil {
 		return a.wrapCmdRunErrorLocked(err)

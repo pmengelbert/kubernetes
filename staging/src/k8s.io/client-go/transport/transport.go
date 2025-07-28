@@ -187,7 +187,7 @@ func TLSConfigFor(c *Config) (*tls.Config, error) {
 				return dynamicCertLoader()
 			}
 			if c.HasCertCallback() {
-				cert, err := c.TLS.GetCertHolder.GetCert(info.Context())
+				cert, err := c.TLS.GetCertHolder.GetCert(requestOrDefaultContext(info))
 				if err != nil {
 					return nil, err
 				}
@@ -396,4 +396,17 @@ func cachingCertificateLoader(certFile, keyFile string) func() (*tls.Certificate
 
 		return current.cert, current.err
 	}
+}
+
+func requestOrDefaultContext(info *tls.CertificateRequestInfo) context.Context {
+	if info == nil {
+		return context.Background()
+	}
+
+	ctx := info.Context()
+	if ctx == nil {
+		return context.Background()
+	}
+
+	return ctx
 }
