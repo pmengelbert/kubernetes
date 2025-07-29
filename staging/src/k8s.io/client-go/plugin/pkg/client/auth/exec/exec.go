@@ -435,7 +435,7 @@ func (a *Authenticator) refreshCredsLocked(ctx context.Context) error {
 	env = append(env, fmt.Sprintf("%s=%s", execInfoEnv, data))
 
 	stdout := &bytes.Buffer{}
-	cmd := exec.CommandContext(ctx, a.cmd, a.args...)
+	cmd := exec.Command(a.cmd, a.args...)
 	cmd.Env = env
 	cmd.Stderr = a.stderr
 	cmd.Stdout = stdout
@@ -443,11 +443,12 @@ func (a *Authenticator) refreshCredsLocked(ctx context.Context) error {
 		cmd.Stdin = a.stdin
 	}
 
-	err = cmd.Run()
+	err = cmd.Start()
 	if err != nil {
-		fmt.Errorf("run exec plugin: %v", err)
+		return fmt.Errorf("exec plugin start failed: %v", err)
 	}
 
+	err = cmdWait(ctx, cmd)
 	incrementCallsMetric(err)
 	if err != nil {
 		return a.wrapCmdRunErrorLocked(err)
@@ -518,6 +519,30 @@ func (a *Authenticator) refreshCredsLocked(ctx context.Context) error {
 	}
 	expirationMetrics.set(a, expiry)
 	return nil
+}
+
+// cmdWait returns when either a) the context is done or b) the command has
+// completed
+func cmdWait(ctx context.Context, cmd *exec.Cmd, errWrap ...func(error) error) error {
+	ec := make(chan error)
+	go func() {
+		ec <- cmd.Wait()
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("exec plugin context canceled: %v", ctx.Err())
+		case err := <-ec:
+			if err != nil {
+				if err != nil {
+					return err
+				}
+			}
+
+			return nil
+		}
+	}
 }
 
 // wrapCmdRunErrorLocked pulls out the code to construct a helpful error message
