@@ -319,7 +319,24 @@ func TestRefreshCreds(t *testing.T) {
 		wantExpiry       time.Time
 		wantErr          bool
 		wantErrSubstr    string
+		// In order to provide a context that can time out reliably, this needs
+		// to be a callback so it can be called just prior to running the exec
+		// plugin.
+		getContext func() (context.Context, context.CancelFunc)
 	}{
+		{
+			name: "beta-with-expiring-context",
+			config: api.ExecConfig{
+				APIVersion:      "client.authentication.k8s.io/v1beta1",
+				InteractiveMode: api.IfAvailableExecInteractiveMode,
+				Command:         "./testdata/timeout.sh",
+			},
+			wantErr:       true,
+			wantErrSubstr: "exec plugin context canceled",
+			getContext: func() (context.Context, context.CancelFunc) {
+				return context.WithTimeout(t.Context(), 2*time.Second)
+			},
+		},
 		{
 			name: "beta-with-TLS-credentials",
 			config: api.ExecConfig{
@@ -793,8 +810,7 @@ func TestRefreshCreds(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			c := test.config
 
-			if c.Command == "" {
-				c.Command = "./testdata/test-plugin.sh"
+			setExecEnv := func() {
 				c.Env = append(c.Env, api.ExecEnvVar{
 					Name:  "TEST_OUTPUT",
 					Value: test.output,
@@ -803,6 +819,14 @@ func TestRefreshCreds(t *testing.T) {
 					Name:  "TEST_EXIT_CODE",
 					Value: strconv.Itoa(test.exitCode),
 				})
+			}
+
+			switch c.Command {
+			case "":
+				c.Command = "./testdata/test-plugin.sh"
+				setExecEnv()
+			case "./testdata/timeout.sh":
+				setExecEnv()
 			}
 
 			a, err := newAuthenticator(newCache(), func(_ int) bool { return test.isTerminal }, &c, test.cluster)
@@ -814,7 +838,15 @@ func TestRefreshCreds(t *testing.T) {
 			a.stderr = stderr
 			a.environ = func() []string { return nil }
 
-			if err := a.refreshCredsLocked(t.Context()); err != nil {
+			ctx := t.Context()
+			if test.getContext != nil {
+				var cancel context.CancelFunc
+				ctx, cancel = test.getContext()
+
+				defer cancel()
+			}
+
+			if err := a.refreshCredsLocked(ctx); err != nil {
 				if !test.wantErr {
 					t.Errorf("get token %v", err)
 				} else if !strings.Contains(err.Error(), test.wantErrSubstr) {
