@@ -16,4 +16,4 @@
 
 >&2 echo "$KUBERNETES_EXEC_INFO"
 echo "$TEST_OUTPUT"
-exec sleep 86400
+exec sleep 60

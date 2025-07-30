@@ -810,7 +810,8 @@ func TestRefreshCreds(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			c := test.config
 
-			setExecEnv := func() {
+			if c.Command == "" {
+				c.Command = "./testdata/test-plugin.sh"
 				c.Env = append(c.Env, api.ExecEnvVar{
 					Name:  "TEST_OUTPUT",
 					Value: test.output,
@@ -819,14 +820,6 @@ func TestRefreshCreds(t *testing.T) {
 					Name:  "TEST_EXIT_CODE",
 					Value: strconv.Itoa(test.exitCode),
 				})
-			}
-
-			switch c.Command {
-			case "":
-				c.Command = "./testdata/test-plugin.sh"
-				setExecEnv()
-			case "./testdata/timeout.sh":
-				setExecEnv()
 			}
 
 			a, err := newAuthenticator(newCache(), func(_ int) bool { return test.isTerminal }, &c, test.cluster)
