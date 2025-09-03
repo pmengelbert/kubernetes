@@ -38,6 +38,9 @@ type Info interface {
 	// delegation flows
 	// In order to faithfully round-trip through an impersonation flow, these keys
 	// MUST be lowercase.
+	// Each string slice value is sorted in order to produce consistent cache
+	// keys. Callers MUST make no assumptions as to the significance of
+	// ordering within these string slices.
 	GetExtra() map[string][]string
 }
 

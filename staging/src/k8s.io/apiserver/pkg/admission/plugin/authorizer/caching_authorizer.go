@@ -122,6 +122,9 @@ func (ca *cachingAuthorizer) Authorize(ctx context.Context, a authorizer.Attribu
 
 		if extra := u.GetExtra(); len(extra) > 0 {
 			di.Extra = make(map[string][]string, len(extra))
+
+			// The ordering of the `.Extra` map values is insignificant and
+			// should not be relied upon.
 			for k, vs := range extra {
 				vdupe := make([]string, len(vs))
 				copy(vdupe, vs)
