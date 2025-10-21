@@ -25,6 +25,7 @@ import (
 	"strings"
 	"unicode"
 
+	"k8s.io/client-go/plugin/pkg/client/auth/exec"
 	restclient "k8s.io/client-go/rest"
 	clientauth "k8s.io/client-go/tools/auth"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -249,6 +250,7 @@ func (config *DirectClientConfig) ClientConfig() (*restclient.Config, error) {
 		}
 	}
 
+	clientConfig.ExecPermissionProvider = &exec.PermissionDenyAll{}
 	return clientConfig, nil
 }
 

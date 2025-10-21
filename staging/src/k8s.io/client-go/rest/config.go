@@ -674,9 +674,10 @@ func CopyConfig(config *Config) *Config {
 			Groups:   config.Impersonate.Groups,
 			Extra:    config.Impersonate.Extra,
 		},
-		AuthProvider:        config.AuthProvider,
-		AuthConfigPersister: config.AuthConfigPersister,
-		ExecProvider:        config.ExecProvider,
+		AuthProvider:           config.AuthProvider,
+		AuthConfigPersister:    config.AuthConfigPersister,
+		ExecProvider:           config.ExecProvider,
+		ExecPermissionProvider: config.ExecPermissionProvider,
 		TLSClientConfig: TLSClientConfig{
 			Insecure:   config.TLSClientConfig.Insecure,
 			ServerName: config.TLSClientConfig.ServerName,
