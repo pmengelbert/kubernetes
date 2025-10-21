@@ -43,6 +43,7 @@ import (
 	"k8s.io/client-go/pkg/apis/clientauthentication/install"
 	clientauthenticationv1 "k8s.io/client-go/pkg/apis/clientauthentication/v1"
 	clientauthenticationv1beta1 "k8s.io/client-go/pkg/apis/clientauthentication/v1beta1"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/metrics"
 	"k8s.io/client-go/transport"
@@ -250,6 +251,9 @@ type Authenticator struct {
 	cluster            *clientauthentication.Cluster
 	provideClusterInfo bool
 
+	// Set by the allowlist config
+	execPermissionProvider rest.ExecPermissionProvider
+
 	// Used to avoid log spew by rate limiting install hint printing. We didn't do
 	// this by interval based rate limiting alone since that way may have prevented
 	// the install hint from showing up for kubectl users.
@@ -411,6 +415,7 @@ func (a *Authenticator) maybeRefreshCreds(creds *credentials) error {
 // refreshCredsLocked executes the plugin and reads the credentials from
 // stdout. It must be called while holding the Authenticator's mutex.
 func (a *Authenticator) refreshCredsLocked() error {
+
 	interactive, err := a.interactiveFunc()
 	if err != nil {
 		return fmt.Errorf("exec plugin cannot support interactive mode: %w", err)

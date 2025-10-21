@@ -128,10 +128,17 @@ func (c *Config) TransportConfig() (*transport.Config, error) {
 				return nil, err
 			}
 		}
+
+		// allowlist logic here to avoid unnecessary further propagation
+		if err := c.ExecPermissionProvider.Allows(c.ExecProvider); err != nil {
+			return nil, err
+		}
+
 		provider, err := exec.GetAuthenticator(c.ExecProvider, cluster)
 		if err != nil {
 			return nil, err
 		}
+
 		if err := provider.UpdateTransportConfig(conf); err != nil {
 			return nil, err
 		}
