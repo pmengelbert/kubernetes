@@ -28,7 +28,12 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/plugin/pkg/client/auth/exec"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
 	"k8s.io/kubectl/pkg/config"
@@ -52,6 +57,7 @@ var (
 type PreferencesHandler interface {
 	AddFlags(flags *pflag.FlagSet)
 	Apply(rootCmd *cobra.Command, args []string, errOut io.Writer) ([]string, error)
+	GetAllowlist() (exec.ExecPermissionProvider, error)
 }
 
 // Preferences stores the kuberc file coming either from environment variable
@@ -59,7 +65,75 @@ type PreferencesHandler interface {
 type Preferences struct {
 	getPreferencesFunc func(kuberc string, errOut io.Writer) (*config.Preference, error)
 
-	aliases map[string]struct{}
+	aliases   map[string]struct{}
+	allowlist exec.ExecPermissionProvider
+}
+
+func (p *Preferences) GetAllowlist(args []string, errOut io.Writer) (exec.ExecPermissionProvider, error) {
+	kubercPath, err := getExplicitKuberc(args)
+	if err != nil {
+		return nil, err
+	}
+
+	prefs, err := p.getPreferencesFunc(kubercPath, errOut)
+	if err != nil {
+		return nil, err
+	}
+
+	switch prefs.CredPluginPolicy {
+	case "DenyAll":
+		return &exec.PermissionDenyAll{}, nil
+	case "AllowAll":
+		return &exec.PermissionAllowAll{}, nil
+	case "Allowlist":
+		al := *prefs.CredPluginAllowlist
+		eal := make([]exec.AllowlistItem, len(al))
+
+		for _, item := range al {
+			eal = append(eal, exec.AllowlistItem{
+				Name: item.Name,
+			})
+		}
+
+		return &exec.PermissionAllowlist{List: eal}, nil
+	default:
+		return nil, fmt.Errorf("illegal credPluginPolicy: %q", prefs.CredPluginPolicy)
+	}
+}
+
+type allowlistRESTClientGetter struct {
+	cg genericclioptions.RESTClientGetter
+	pp exec.ExecPermissionProvider
+}
+
+// ToRESTConfig returns restconfig
+func (a *allowlistRESTClientGetter) ToRESTConfig() (*rest.Config, error) {
+	cfg, err := a.cg.ToRESTConfig()
+	if err != nil {
+		return cfg, err
+	}
+
+	cfg.ExecPermissionProvider = &exec.PermissionDenyAll{}
+	return cfg, nil
+}
+
+// ToDiscoveryClient returns discovery client
+func (a *allowlistRESTClientGetter) ToDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
+	return a.cg.ToDiscoveryClient()
+}
+
+// ToRESTMapper returns a restmapper
+func (a *allowlistRESTClientGetter) ToRESTMapper() (meta.RESTMapper, error) {
+	return a.cg.ToRESTMapper()
+}
+
+// ToRawKubeConfigLoader return kubeconfig loader as-is
+func (a *allowlistRESTClientGetter) ToRawKubeConfigLoader() clientcmd.ClientConfig {
+	return a.cg.ToRawKubeConfigLoader()
+}
+
+func (p *Preferences) ApplyAllowlist(cg genericclioptions.RESTClientGetter) genericclioptions.RESTClientGetter {
+	return &allowlistRESTClientGetter{cg: cg, pp: &exec.PermissionDenyAll{}}
 }
 
 // NewPreferences returns initialized Prefrences object.

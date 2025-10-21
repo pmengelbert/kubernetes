@@ -62,6 +62,7 @@ type Preference struct {
 	// "kubectl getn control-plane-1 --output=json" expands to "kubectl get node --output=json control-plane-1"
 	// +optional
 	Aliases             []AliasOverride
+	CredPluginPolicy    string
 	CredPluginAllowlist *[]AllowlistItem
 }
 

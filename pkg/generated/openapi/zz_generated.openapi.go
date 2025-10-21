@@ -69810,10 +69810,16 @@ func schema_kubectl_pkg_config_v1alpha1_Preference(ref common.ReferenceCallback)
 							},
 						},
 					},
-					"credPluginAllowlist": {
+					"credPluginPolicy": {
 						SchemaProps: spec.SchemaProps{
 							Description: "credPluginAllowlist (the credential plugin allowlist) specifies the conditions under which client-go credential plugins may be executed. If this field is explicitly given the empty list value (`[]`), the user can disallow all plugins. If this field is left unspecified by the user, it will default to `nil`. When the allowlist is `nil`, all binaries will be permited. In order for a credential plugin binary to be allowed, it must match all criteria specified by at least one entry in the allowlist. Curently, the only criteria available is the name of the plugin. Name matching is performed by first resolving the absolute path of both the plugin and the name in the allowlist entry using `exec.LookPath`. It will be called on both, and the resulting strings must be equal.\n\ne.g. credPluginAllowlist: - name: cloud-provider-plugin - name: /usr/local/bin/my-plugin In the above example, the user allows the credential plugins `cloud-provider-plugin` (found somewhere in PATH), and the plugin found at the explicit path `/usr/local/bin/my-plugin`.",
-							Type:        []string{"array"},
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"credPluginAllowlist": {
+						SchemaProps: spec.SchemaProps{
+							Type: []string{"array"},
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
@@ -70077,10 +70083,16 @@ func schema_kubectl_pkg_config_v1beta1_Preference(ref common.ReferenceCallback) 
 							},
 						},
 					},
-					"credPluginAllowlist": {
+					"credPluginPolicy": {
 						SchemaProps: spec.SchemaProps{
 							Description: "credPluginAllowlist (the credential plugin allowlist) specifies the conditions under which client-go credential plugins may be executed. If this field is explicitly given the empty list value (`[]`), the user can disallow all plugins. If this field is left unspecified by the user, it will default to `nil`. When the allowlist is `nil`, all binaries will be permited. In order for a credential plugin binary to be allowed, it must match all criteria specified by at least one entry in the allowlist. Curently, the only criteria available is the name of the plugin. Name matching is performed by first resolving the absolute path of both the plugin and the name in the allowlist entry using `exec.LookPath`. It will be called on both, and the resulting strings must be equal.\n\ne.g. credPluginAllowlist: - name: cloud-provider-plugin - name: /usr/local/bin/my-plugin In the above example, the user allows the credential plugins `cloud-provider-plugin` (found somewhere in PATH), and the plugin found at the explicit path `/usr/local/bin/my-plugin`.",
-							Type:        []string{"array"},
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"credPluginAllowlist": {
+						SchemaProps: spec.SchemaProps{
+							Type: []string{"array"},
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{

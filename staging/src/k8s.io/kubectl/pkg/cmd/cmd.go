@@ -377,6 +377,15 @@ func NewKubectlCommand(o KubectlOptions) *cobra.Command {
 	// Updates hooks to add kubectl command headers: SIG CLI KEP 859.
 	addCmdHeaderHooks(cmds, kubeConfigFlags)
 
+	if !cmdutil.KubeRC.IsDisabled() {
+		pp, err := pref.GetAllowlist()
+		if err != nil {
+			fmt.Fprintf(o.IOStreams.ErrOut, "error occurred while getting allowlist %v\n", err)
+			os.Exit(1)
+		}
+
+	}
+
 	f := cmdutil.NewFactory(matchVersionKubeConfigFlags)
 
 	// Proxy command is incompatible with CommandHeaderRoundTripper, so

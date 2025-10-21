@@ -184,6 +184,7 @@ func Convert_config_CommandOptionDefault_To_v1beta1_CommandOptionDefault(in *con
 func autoConvert_v1beta1_Preference_To_config_Preference(in *Preference, out *config.Preference, s conversion.Scope) error {
 	out.Defaults = *(*[]config.CommandDefaults)(unsafe.Pointer(&in.Defaults))
 	out.Aliases = *(*[]config.AliasOverride)(unsafe.Pointer(&in.Aliases))
+	out.CredPluginPolicy = in.CredPluginPolicy
 	out.CredPluginAllowlist = (*[]config.AllowlistItem)(unsafe.Pointer(in.CredPluginAllowlist))
 	return nil
 }
@@ -196,6 +197,7 @@ func Convert_v1beta1_Preference_To_config_Preference(in *Preference, out *config
 func autoConvert_config_Preference_To_v1beta1_Preference(in *config.Preference, out *Preference, s conversion.Scope) error {
 	out.Defaults = *(*[]CommandDefaults)(unsafe.Pointer(&in.Defaults))
 	out.Aliases = *(*[]AliasOverride)(unsafe.Pointer(&in.Aliases))
+	out.CredPluginPolicy = in.CredPluginPolicy
 	out.CredPluginAllowlist = (*[]AllowlistItem)(unsafe.Pointer(in.CredPluginAllowlist))
 	return nil
 }

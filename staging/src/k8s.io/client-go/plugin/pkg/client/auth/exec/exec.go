@@ -605,7 +605,7 @@ func (d *PermissionDenyAll) Allows(_ string) (ExecPermissionProviderResult, erro
 }
 
 type PermissionAllowlist struct {
-	list []AllowlistItem
+	List []AllowlistItem
 }
 
 func (p *PermissionAllowlist) Allows(cmd string) (ExecPermissionProviderResult, error) {
@@ -614,7 +614,7 @@ func (p *PermissionAllowlist) Allows(cmd string) (ExecPermissionProviderResult, 
 		return ExecPermissionProviderResultDeny, fmt.Errorf("%w: could not resolve path of exec plugin command %q", err, cmd)
 	}
 
-	for _, entry := range p.list {
+	for _, entry := range p.List {
 		if entry.greenlights(pluginAbsPath) {
 			return ExecPermissionProviderResultAllow, nil
 		}
