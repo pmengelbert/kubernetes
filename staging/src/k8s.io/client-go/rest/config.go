@@ -24,7 +24,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	gruntime "runtime"
 	"strings"
@@ -37,6 +36,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/serializer/cbor"
 	"k8s.io/client-go/features"
 	"k8s.io/client-go/pkg/version"
+	"k8s.io/client-go/plugin/pkg/client/auth/exec"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/transport"
 	certutil "k8s.io/client-go/util/cert"
@@ -50,8 +50,6 @@ const (
 )
 
 var ErrNotInCluster = errors.New("unable to load in-cluster configuration, KUBERNETES_SERVICE_HOST and KUBERNETES_SERVICE_PORT must be defined")
-
-var emptyAllowlistItem = AllowlistItem{}
 
 // Config holds the common attributes that can be passed to a Kubernetes client on
 // initialization.
@@ -92,8 +90,8 @@ type Config struct {
 	AuthConfigPersister AuthProviderConfigPersister
 
 	// Exec-based authentication provider.
-	ExecProvider               *clientcmdapi.ExecConfig
-	ExecExecPermissionProvider ExecPermissionProvider
+	ExecProvider           *clientcmdapi.ExecConfig
+	ExecPermissionProvider exec.ExecPermissionProvider
 
 	// TLSClientConfig contains settings to enable transport layer security
 	TLSClientConfig
@@ -166,121 +164,6 @@ type Config struct {
 	// Version forces a specific version to be used (if registered)
 	// Do we need this?
 	// Version string
-}
-
-// AllowlistItem stores the criteria specified by an entry in the credential
-// plugin allowlist. In order for a binary plugin to be permitted, it must meet
-// all criteria specified within an AllowlistItem.
-type AllowlistItem struct {
-	Name string
-}
-
-type ExecPluginPolicy string
-
-const (
-	ExecPolicyAllowAll  ExecPluginPolicy = "AllowAll"
-	ExecPolicyDenyAll   ExecPluginPolicy = "DenyAll"
-	ExecPolicyAllowlist ExecPluginPolicy = "Allowlist"
-)
-
-type ExecPermissionProviderResult string
-
-const (
-	ExecPermissionProviderResultAllow ExecPermissionProviderResult = "allow"
-	ExecPermissionProviderResultDeny  ExecPermissionProviderResult = "deny"
-)
-
-type ExecPermissionProvider interface {
-	Allows(*clientcmdapi.ExecConfig) error
-}
-
-type PermissionAllowAll struct{}
-
-func (_ *PermissionAllowAll) Allows(_ *clientcmdapi.ExecConfig) error {
-	return nil
-}
-
-type PermissionDenyAll struct{}
-
-func (d *PermissionDenyAll) Allows(_ *clientcmdapi.ExecConfig) error {
-	return fmt.Errorf("exec plugin policy set to DenyAll")
-}
-
-type PermissionAllowlist struct {
-	list []AllowlistItem
-}
-
-func (p *PermissionAllowlist) Allows(ec *clientcmdapi.ExecConfig) error {
-	pluginAbsPath, err := exec.LookPath(ec.Command)
-	if err != nil {
-		return err
-	}
-
-	for _, entry := range p.list {
-		if entry.greenlights(pluginAbsPath) {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("%q is not permitted by the credential plugin allowlist")
-
-}
-
-func (alEntry AllowlistItem) greenlights(pluginAbsPath string) bool {
-	// if no fields are specified, this is a user error. To avoid fail-open
-	// behavior, an empty entry must not allow anything.
-	if alEntry == emptyAllowlistItem {
-		return false
-	}
-
-	if entryName := alEntry.Name; len(entryName) > 0 {
-		entryAbsPath, err := exec.LookPath(entryName)
-		if err != nil {
-			klog.V(5).Infof("error looking up path for %q: %s", entryName, err)
-			return false
-		}
-
-		if pluginAbsPath != entryAbsPath {
-			return false
-		}
-	}
-
-	return true
-
-}
-
-// isGreenlit looks up the binary found at `pluginAbsPath` and compares it against the
-// criteria specified in `alEntry`. All checks against nonempty criteria must
-// succeed for the binary to be greenlit.
-func isGreenlit(pluginAbsPath string) bool {
-	// if no fields are specified, this is a user error. To avoid fail-open
-	// behavior, an empty entry must not allow anything.
-	if alEntry == emptyAllowlistItem {
-		return false
-	}
-
-	if entryName := alEntry.Name; len(entryName) > 0 {
-		entryAbsPath, err := exec.LookPath(entryName)
-		if err != nil {
-			klog.V(5).Infof("error looking up path for %q: %s", entryName, err)
-			return false
-		}
-
-		if pluginAbsPath != entryAbsPath {
-			return false
-		}
-	}
-
-	return true
-}
-
-func (epp ExecPluginPolicy) Validate() error {
-	switch epp {
-	case ExecPolicyAllowAll, ExecPolicyDenyAll, ExecPolicyAllowlist:
-		return nil
-	default:
-		return fmt.Errorf("invalid exec plugin policy: %q", epp)
-	}
 }
 
 var _ fmt.Stringer = new(Config)

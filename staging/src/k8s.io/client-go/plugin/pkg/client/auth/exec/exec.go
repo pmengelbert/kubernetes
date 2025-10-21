@@ -43,7 +43,6 @@ import (
 	"k8s.io/client-go/pkg/apis/clientauthentication/install"
 	clientauthenticationv1 "k8s.io/client-go/pkg/apis/clientauthentication/v1"
 	clientauthenticationv1beta1 "k8s.io/client-go/pkg/apis/clientauthentication/v1beta1"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/metrics"
 	"k8s.io/client-go/transport"
@@ -157,11 +156,11 @@ func (s *sometimes) Do(f func()) {
 }
 
 // GetAuthenticator returns an exec-based plugin for providing client credentials.
-func GetAuthenticator(config *api.ExecConfig, cluster *clientauthentication.Cluster) (*Authenticator, error) {
-	return newAuthenticator(globalCache, term.IsTerminal, config, cluster)
+func GetAuthenticator(config *api.ExecConfig, cluster *clientauthentication.Cluster, permissionPolicy ExecPermissionProvider) (*Authenticator, error) {
+	return newAuthenticator(globalCache, term.IsTerminal, config, cluster, permissionPolicy)
 }
 
-func newAuthenticator(c *cache, isTerminalFunc func(int) bool, config *api.ExecConfig, cluster *clientauthentication.Cluster) (*Authenticator, error) {
+func newAuthenticator(c *cache, isTerminalFunc func(int) bool, config *api.ExecConfig, cluster *clientauthentication.Cluster, permissionPolicy ExecPermissionProvider) (*Authenticator, error) {
 	key := cacheKey(config, cluster)
 	if a, ok := c.get(key); ok {
 		return a, nil
@@ -178,12 +177,21 @@ func newAuthenticator(c *cache, isTerminalFunc func(int) bool, config *api.ExecC
 		connTracker,
 	)
 
+	// For backward compatibility, we must allow all if no policy has been provided.
+	var epp ExecPermissionProvider = &PermissionAllowAll{}
+	if permissionPolicy != nil {
+		epp = permissionPolicy
+	}
+
 	a := &Authenticator{
 		cmd:                config.Command,
 		args:               config.Args,
 		group:              gv,
 		cluster:            cluster,
 		provideClusterInfo: config.ProvideClusterInfo,
+
+		// TODO(pmengelbert)
+		execPermissionProvider: epp,
 
 		installHint: config.InstallHint,
 		sometimes: &sometimes{
@@ -252,7 +260,7 @@ type Authenticator struct {
 	provideClusterInfo bool
 
 	// Set by the allowlist config
-	execPermissionProvider rest.ExecPermissionProvider
+	execPermissionProvider ExecPermissionProvider
 
 	// Used to avoid log spew by rate limiting install hint printing. We didn't do
 	// this by interval based rate limiting alone since that way may have prevented
@@ -446,6 +454,12 @@ func (a *Authenticator) refreshCredsLocked() error {
 		cmd.Stdin = a.stdin
 	}
 
+	if a.execPermissionProvider != nil {
+		if result, err := a.execPermissionProvider.Allows(a.cmd); result != ExecPermissionProviderResultAllow {
+			return err
+		}
+	}
+
 	err = cmd.Run()
 	incrementCallsMetric(err)
 	if err != nil {
@@ -549,4 +563,85 @@ func (a *Authenticator) wrapCmdRunErrorLocked(err error) error {
 	default:
 		return fmt.Errorf("exec: %v", err)
 	}
+}
+
+var emptyAllowlistItem = AllowlistItem{}
+
+// AllowlistItem stores the criteria specified by an entry in the credential
+// plugin allowlist. In order for a binary plugin to be permitted, it must meet
+// all criteria specified within an AllowlistItem.
+type AllowlistItem struct {
+	Name string
+}
+type ExecPermissionProviderResult string
+
+const (
+	ExecPermissionProviderResultAllow ExecPermissionProviderResult = "allow"
+	ExecPermissionProviderResultDeny  ExecPermissionProviderResult = "deny"
+)
+
+// `ExecPermissionProvider` provides the interface for permitting or denying
+// the execution of an exec plugin.
+type ExecPermissionProvider interface {
+	// `Allows` determines whether or not the executable specified in its
+	// argument may run according to the credential plugin policy. Its first
+	// return value will be one of {"allow", "deny"}. If the first return value
+	// is "allow", the second return value MUST be nil. If the first return
+	// value is "deny", the second return value MUST be an error message
+	// explaining why the plugin was denied.
+	Allows(string) (ExecPermissionProviderResult, error)
+}
+
+type PermissionAllowAll struct{}
+
+func (_ *PermissionAllowAll) Allows(_ string) (ExecPermissionProviderResult, error) {
+	return ExecPermissionProviderResultAllow, nil
+}
+
+type PermissionDenyAll struct{}
+
+func (d *PermissionDenyAll) Allows(_ string) (ExecPermissionProviderResult, error) {
+	return ExecPermissionProviderResultDeny, fmt.Errorf("exec plugin policy set to `DenyAll`")
+}
+
+type PermissionAllowlist struct {
+	list []AllowlistItem
+}
+
+func (p *PermissionAllowlist) Allows(cmd string) (ExecPermissionProviderResult, error) {
+	pluginAbsPath, err := exec.LookPath(cmd)
+	if err != nil {
+		return ExecPermissionProviderResultDeny, fmt.Errorf("%w: could not resolve path of exec plugin command %q", err, cmd)
+	}
+
+	for _, entry := range p.list {
+		if entry.greenlights(pluginAbsPath) {
+			return ExecPermissionProviderResultAllow, nil
+		}
+	}
+
+	return ExecPermissionProviderResultDeny, fmt.Errorf("%q is not permitted by the credential plugin allowlist")
+}
+
+func (alEntry AllowlistItem) greenlights(pluginAbsPath string) bool {
+	// if no fields are specified, this is a user error. To avoid fail-open
+	// behavior, an empty entry must not allow anything.
+	if alEntry == emptyAllowlistItem {
+		return false
+	}
+
+	if entryName := alEntry.Name; len(entryName) > 0 {
+		entryAbsPath, err := exec.LookPath(entryName)
+		if err != nil {
+			klog.V(5).Infof("error looking up path for %q: %s", entryName, err)
+			return false
+		}
+
+		if pluginAbsPath != entryAbsPath {
+			return false
+		}
+	}
+
+	return true
+
 }
