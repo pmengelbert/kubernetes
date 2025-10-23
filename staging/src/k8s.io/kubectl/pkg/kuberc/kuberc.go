@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -32,8 +33,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/discovery/cached/disk"
 	"k8s.io/client-go/plugin/pkg/client/auth/exec"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
 	"k8s.io/kubectl/pkg/config"
@@ -133,18 +136,50 @@ func (a *allowlistRESTClientGetter) ToRESTConfig() (*rest.Config, error) {
 		return cfg, err
 	}
 
-	cfg.ExecPermissionProvider = &exec.PermissionDenyAll{}
+	cfg.ExecPermissionProvider = a.pp
 	return cfg, nil
 }
 
 // ToDiscoveryClient returns discovery client
 func (a *allowlistRESTClientGetter) ToDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
-	return a.cg.ToDiscoveryClient()
+	cfg, err := a.ToRESTConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	cacheDir := filepath.Join(homedir.HomeDir(), ".kube", "cache")
+	if kcd := os.Getenv("KUBECACHEDIR"); kcd != "" {
+		cacheDir = kcd
+	}
+
+	computeDiscoverCacheDir := func(parentDir, host string) string {
+		var overlyCautiousIllegalFileCharacters = regexp.MustCompile(`[^(\w/.)]`)
+
+		// strip the optional scheme from host if its there:
+		schemelessHost := strings.Replace(strings.Replace(host, "https://", "", 1), "http://", "", 1)
+		// now do a simple collapse of non-AZ09 characters.  Collisions are possible but unlikely.  Even if we do collide the problem is short lived
+		safeHost := overlyCautiousIllegalFileCharacters.ReplaceAllString(schemelessHost, "_")
+		return filepath.Join(parentDir, safeHost)
+	}
+
+	httpCacheDir := filepath.Join(cacheDir, "http")
+	discoveryCacheDir := computeDiscoverCacheDir(filepath.Join(cacheDir, "discovery"), cfg.Host)
+
+	return disk.NewCachedDiscoveryClientForConfig(cfg, discoveryCacheDir, httpCacheDir, time.Duration(6*time.Hour))
 }
 
 // ToRESTMapper returns a restmapper
 func (a *allowlistRESTClientGetter) ToRESTMapper() (meta.RESTMapper, error) {
-	return a.cg.ToRESTMapper()
+	discoveryClient, err := a.ToDiscoveryClient()
+	if err != nil {
+		return nil, err
+	}
+
+	mapper := restmapper.NewDeferredDiscoveryRESTMapper(discoveryClient)
+	expander := restmapper.NewShortcutExpander(mapper, discoveryClient, func(a string) {
+	})
+
+	return expander, nil
 }
 
 // ToRawKubeConfigLoader return kubeconfig loader as-is

@@ -374,12 +374,7 @@ func NewKubectlCommand(o KubectlOptions) *cobra.Command {
 		kubeConfigFlags = defaultConfigFlags().WithWarningPrinter(o.IOStreams)
 	}
 	kubeConfigFlags.AddFlags(flags)
-	matchVersionKubeConfigFlags := cmdutil.NewMatchVersionFlags(kubeConfigFlags)
-	matchVersionKubeConfigFlags.AddFlags(flags)
-	// Updates hooks to add kubectl command headers: SIG CLI KEP 859.
-	addCmdHeaderHooks(cmds, kubeConfigFlags)
 
-	var rcg genericclioptions.RESTClientGetter = matchVersionKubeConfigFlags
 	if !cmdutil.KubeRC.IsDisabled() {
 		p, err := pref.GetPreferenceData(o.Arguments, o.IOStreams.ErrOut)
 		if err != nil {
@@ -390,16 +385,33 @@ func NewKubectlCommand(o KubectlOptions) *cobra.Command {
 		policy := p.CredPluginPolicy
 		al := p.CredPluginAllowlist
 		pp, err := authexec.NewPermissionProvider(policy, util.ConvertAllowlist(al))
-
 		if err != nil {
 			fmt.Fprintf(o.IOStreams.ErrOut, "error occurred while processing allowlist %v\n", err)
 			os.Exit(1)
 		}
 
-		rcg = kuberc.WrapRESTClientGetter(rcg, pp)
+		kubeConfigFlags = kubeConfigFlags.WithWrapConfigFn(func(c *rest.Config) *rest.Config {
+			strat, err := cmdutil.GetDryRunStrategy(cmds)
+			if err != nil {
+				return c
+			}
+
+			if strat == cmdutil.DryRunClient {
+				return c
+			}
+
+			c.ExecPermissionProvider = pp
+			return c
+		})
+
 	}
 
-	f := cmdutil.NewFactory(rcg)
+	matchVersionKubeConfigFlags := cmdutil.NewMatchVersionFlags(kubeConfigFlags)
+	matchVersionKubeConfigFlags.AddFlags(flags)
+	// Updates hooks to add kubectl command headers: SIG CLI KEP 859.
+	addCmdHeaderHooks(cmds, kubeConfigFlags)
+
+	f := cmdutil.NewFactory(matchVersionKubeConfigFlags)
 
 	// Proxy command is incompatible with CommandHeaderRoundTripper, so
 	// clear the WrapConfigFn before running proxy command.
