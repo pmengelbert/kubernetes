@@ -375,6 +375,12 @@ func NewKubectlCommand(o KubectlOptions) *cobra.Command {
 	}
 	kubeConfigFlags.AddFlags(flags)
 
+	pp := &authexec.PermissionAllowAll{}
+	kubeConfigFlags = kubeConfigFlags.WithWrapConfigFn(func(c *rest.Config) *rest.Config {
+		c.ExecPermissionProvider = pp
+		return c
+	})
+	foo := kuberc.Foo{}
 	if !cmdutil.KubeRC.IsDisabled() {
 		p, err := pref.GetPreferenceData(o.Arguments, o.IOStreams.ErrOut)
 		if err != nil {
@@ -389,20 +395,6 @@ func NewKubectlCommand(o KubectlOptions) *cobra.Command {
 			fmt.Fprintf(o.IOStreams.ErrOut, "error occurred while processing allowlist %v\n", err)
 			os.Exit(1)
 		}
-
-		kubeConfigFlags = kubeConfigFlags.WithWrapConfigFn(func(c *rest.Config) *rest.Config {
-			strat, err := cmdutil.GetDryRunStrategy(cmds)
-			if err != nil {
-				return c
-			}
-
-			if strat == cmdutil.DryRunClient {
-				return c
-			}
-
-			c.ExecPermissionProvider = pp
-			return c
-		})
 
 	}
 
@@ -542,7 +534,7 @@ func NewKubectlCommand(o KubectlOptions) *cobra.Command {
 			}
 			return existingPreRunE(cmd, args)
 		}
-		_, err := pref.Apply(cmds, o.Arguments, o.IOStreams.ErrOut)
+		_, err := pref.Apply(cmds, &foo, o.Arguments, o.IOStreams.ErrOut)
 		if err != nil {
 			fmt.Fprintf(o.IOStreams.ErrOut, "error occurred while applying preferences %v\n", err)
 			os.Exit(1)

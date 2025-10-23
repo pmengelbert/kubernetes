@@ -218,9 +218,18 @@ func (p *Preferences) AddFlags(flags *pflag.FlagSet) {
 	flags.String("kuberc", "", "Path to the kuberc file to use for preferences. This can be disabled by exporting KUBECTL_KUBERC=false feature gate or turning off the feature KUBERC=off.")
 }
 
+type Foo struct {
+	allow func(abc string) error
+}
+
+func (f *Foo) Allow(abc string) error {
+	// nil check
+	return f.allow(abc)
+}
+
 // Apply firstly applies the aliases in the preferences file and secondly overrides
 // the default values of flags.
-func (p *Preferences) Apply(rootCmd *cobra.Command, args []string, errOut io.Writer) ([]string, error) {
+func (p *Preferences) Apply(rootCmd *cobra.Command, foo *Foo, args []string, errOut io.Writer) ([]string, error) {
 	if len(args) <= 1 {
 		return args, nil
 	}
@@ -229,6 +238,13 @@ func (p *Preferences) Apply(rootCmd *cobra.Command, args []string, errOut io.Wri
 	if err != nil {
 		return args, fmt.Errorf("kuberc error %w", err)
 	}
+
+	var x foo
+	x.allow = func(abc string) error {
+		return fmt.Errorf("do your thing in there")
+	}
+
+	// apply allowlist
 
 	if kuberc == nil {
 		return args, nil
