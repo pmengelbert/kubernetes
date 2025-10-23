@@ -573,6 +573,7 @@ var emptyAllowlistItem = AllowlistItem{}
 type AllowlistItem struct {
 	Name string
 }
+
 type ExecPermissionProviderResult string
 
 const (
@@ -606,6 +607,19 @@ func (d *PermissionDenyAll) Allows(_ string) (ExecPermissionProviderResult, erro
 
 type PermissionAllowlist struct {
 	List []AllowlistItem
+}
+
+func NewPermissionProvider(policy string, allowlist []AllowlistItem) (ExecPermissionProvider, error) {
+	switch policy {
+	case "AllowAll":
+		return &PermissionAllowAll{}, nil
+	case "DenyAll":
+		return &PermissionDenyAll{}, nil
+	case "Allowlist":
+		return &PermissionAllowlist{List: allowlist}, nil
+	default:
+		return nil, fmt.Errorf("invalid allowlist policy: %q", policy)
+	}
 }
 
 func (p *PermissionAllowlist) Allows(cmd string) (ExecPermissionProviderResult, error) {

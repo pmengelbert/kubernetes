@@ -29,6 +29,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"k8s.io/cli-runtime/pkg/genericiooptions"
+	authexec "k8s.io/client-go/plugin/pkg/client/auth/exec"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	cliflag "k8s.io/component-base/cli/flag"
@@ -74,6 +75,7 @@ import (
 	"k8s.io/kubectl/pkg/cmd/version"
 	"k8s.io/kubectl/pkg/cmd/wait"
 	"k8s.io/kubectl/pkg/kuberc"
+	"k8s.io/kubectl/pkg/util"
 	utilcomp "k8s.io/kubectl/pkg/util/completion"
 	"k8s.io/kubectl/pkg/util/i18n"
 	"k8s.io/kubectl/pkg/util/templates"
@@ -377,16 +379,27 @@ func NewKubectlCommand(o KubectlOptions) *cobra.Command {
 	// Updates hooks to add kubectl command headers: SIG CLI KEP 859.
 	addCmdHeaderHooks(cmds, kubeConfigFlags)
 
+	var rcg genericclioptions.RESTClientGetter = matchVersionKubeConfigFlags
 	if !cmdutil.KubeRC.IsDisabled() {
-		pp, err := pref.GetAllowlist()
+		p, err := pref.GetPreferenceData(o.Arguments, o.IOStreams.ErrOut)
 		if err != nil {
 			fmt.Fprintf(o.IOStreams.ErrOut, "error occurred while getting allowlist %v\n", err)
 			os.Exit(1)
 		}
 
+		policy := p.CredPluginPolicy
+		al := p.CredPluginAllowlist
+		pp, err := authexec.NewPermissionProvider(policy, util.ConvertAllowlist(al))
+
+		if err != nil {
+			fmt.Fprintf(o.IOStreams.ErrOut, "error occurred while processing allowlist %v\n", err)
+			os.Exit(1)
+		}
+
+		rcg = kuberc.WrapRESTClientGetter(rcg, pp)
 	}
 
-	f := cmdutil.NewFactory(matchVersionKubeConfigFlags)
+	f := cmdutil.NewFactory(rcg)
 
 	// Proxy command is incompatible with CommandHeaderRoundTripper, so
 	// clear the WrapConfigFn before running proxy command.

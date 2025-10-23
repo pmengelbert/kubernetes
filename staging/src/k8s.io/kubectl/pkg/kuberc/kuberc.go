@@ -57,49 +57,69 @@ var (
 type PreferencesHandler interface {
 	AddFlags(flags *pflag.FlagSet)
 	Apply(rootCmd *cobra.Command, args []string, errOut io.Writer) ([]string, error)
-	GetAllowlist() (exec.ExecPermissionProvider, error)
+	GetPreferenceData(args []string, errOut io.Writer) (*config.Preference, error)
 }
 
 // Preferences stores the kuberc file coming either from environment variable
 // or file from set in flag or the default kuberc path.
 type Preferences struct {
-	getPreferencesFunc func(kuberc string, errOut io.Writer) (*config.Preference, error)
+	getPreferencesFunc func(kuberc string, errOut io.Writer) (*config.Preference, error) // DefaultGetPreferences
+	preferences        *config.Preference
+	err                error
 
-	aliases   map[string]struct{}
-	allowlist exec.ExecPermissionProvider
+	aliases map[string]struct{}
 }
 
-func (p *Preferences) GetAllowlist(args []string, errOut io.Writer) (exec.ExecPermissionProvider, error) {
+func (p *Preferences) GetPreferenceData(args []string, errOut io.Writer) (*config.Preference, error) {
+	if p.preferences != nil {
+		return p.preferences, nil
+	}
+
 	kubercPath, err := getExplicitKuberc(args)
 	if err != nil {
 		return nil, err
 	}
 
-	prefs, err := p.getPreferencesFunc(kubercPath, errOut)
+	pref, err := p.getPreferencesFunc(kubercPath, errOut)
 	if err != nil {
 		return nil, err
 	}
 
-	switch prefs.CredPluginPolicy {
-	case "DenyAll":
-		return &exec.PermissionDenyAll{}, nil
-	case "AllowAll":
-		return &exec.PermissionAllowAll{}, nil
-	case "Allowlist":
-		al := *prefs.CredPluginAllowlist
-		eal := make([]exec.AllowlistItem, len(al))
-
-		for _, item := range al {
-			eal = append(eal, exec.AllowlistItem{
-				Name: item.Name,
-			})
-		}
-
-		return &exec.PermissionAllowlist{List: eal}, nil
-	default:
-		return nil, fmt.Errorf("illegal credPluginPolicy: %q", prefs.CredPluginPolicy)
-	}
+	p.preferences = pref
+	return p.preferences, nil
 }
+
+// func (p *Preferences) GetAllowlist(args []string, errOut io.Writer) (exec.ExecPermissionProvider, error) {
+// 	kubercPath, err := getExplicitKuberc(args)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	prefs, err := p.GetPreferenceData(kubercPath, errOut)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	switch prefs.CredPluginPolicy {
+// 	case "DenyAll":
+// 		return &exec.PermissionDenyAll{}, nil
+// 	case "AllowAll":
+// 		return &exec.PermissionAllowAll{}, nil
+// 	case "Allowlist":
+// 		al := *prefs.CredPluginAllowlist
+// 		eal := make([]exec.AllowlistItem, len(al))
+
+// 		for _, item := range al {
+// 			eal = append(eal, exec.AllowlistItem{
+// 				Name: item.Name,
+// 			})
+// 		}
+
+// 		return &exec.PermissionAllowlist{List: eal}, nil
+// 	default:
+// 		return nil, fmt.Errorf("illegal credPluginPolicy: %q", prefs.CredPluginPolicy)
+// 	}
+// }
 
 type allowlistRESTClientGetter struct {
 	cg genericclioptions.RESTClientGetter
@@ -132,16 +152,22 @@ func (a *allowlistRESTClientGetter) ToRawKubeConfigLoader() clientcmd.ClientConf
 	return a.cg.ToRawKubeConfigLoader()
 }
 
-func (p *Preferences) ApplyAllowlist(cg genericclioptions.RESTClientGetter) genericclioptions.RESTClientGetter {
-	return &allowlistRESTClientGetter{cg: cg, pp: &exec.PermissionDenyAll{}}
+func WrapRESTClientGetter(wrapee genericclioptions.RESTClientGetter, pp exec.ExecPermissionProvider) genericclioptions.RESTClientGetter {
+	return &allowlistRESTClientGetter{cg: wrapee, pp: pp}
 }
+
+// func (p *Preferences) ApplyAllowlist(cg genericclioptions.RESTClientGetter) genericclioptions.RESTClientGetter {
+// 	return &allowlistRESTClientGetter{cg: cg, pp: &exec.PermissionDenyAll{}}
+// }
 
 // NewPreferences returns initialized Prefrences object.
 func NewPreferences() PreferencesHandler {
-	return &Preferences{
+	p := &Preferences{
 		getPreferencesFunc: DefaultGetPreferences,
 		aliases:            make(map[string]struct{}),
 	}
+
+	return p
 }
 
 type aliasing struct {
@@ -164,11 +190,7 @@ func (p *Preferences) Apply(rootCmd *cobra.Command, args []string, errOut io.Wri
 		return args, nil
 	}
 
-	kubercPath, err := getExplicitKuberc(args)
-	if err != nil {
-		return args, err
-	}
-	kuberc, err := p.getPreferencesFunc(kubercPath, errOut)
+	kuberc, err := p.GetPreferenceData(args, errOut)
 	if err != nil {
 		return args, fmt.Errorf("kuberc error %w", err)
 	}
@@ -428,6 +450,20 @@ func DefaultGetPreferences(kuberc string, errOut io.Writer) (*config.Preference,
 
 	default:
 		return preference, nil
+	}
+}
+
+func makeCachingGetPreferencesFunc(getPreferencesFunc func(string, io.Writer) (*config.Preference, error)) func(string, io.Writer) (*config.Preference, error) {
+	var pf *config.Preference
+	var err error
+
+	return func(s string, w io.Writer) (*config.Preference, error) {
+		if pf != nil {
+			return pf, err
+		}
+
+		pf, err = getPreferencesFunc(s, w)
+		return getPreferencesFunc(s, w)
 	}
 }
 

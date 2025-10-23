@@ -27,6 +27,8 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/plugin/pkg/client/auth/exec"
+	"k8s.io/kubectl/pkg/config"
 )
 
 // ParseRFC3339 parses an RFC3339 date in either RFC3339Nano or RFC3339 format.
@@ -90,4 +92,21 @@ func ParseLiteralSource(source string) (keyName, value string, err error) {
 	}
 
 	return items[0], items[1], nil
+}
+
+func ConvertAllowlist(l *[]config.AllowlistItem) []exec.AllowlistItem {
+	if l == nil {
+		return nil
+	}
+
+	list := *l
+	ret := make([]exec.AllowlistItem, 0, len(list))
+
+	for _, item := range list {
+		ret = append(ret, exec.AllowlistItem{
+			Name: item.Name,
+		})
+	}
+
+	return ret
 }
