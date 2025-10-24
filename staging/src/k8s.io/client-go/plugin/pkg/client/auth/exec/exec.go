@@ -156,11 +156,11 @@ func (s *sometimes) Do(f func()) {
 }
 
 // GetAuthenticator returns an exec-based plugin for providing client credentials.
-func GetAuthenticator(config *api.ExecConfig, cluster *clientauthentication.Cluster, permissionPolicy ExecPermissionProvider) (*Authenticator, error) {
-	return newAuthenticator(globalCache, term.IsTerminal, config, cluster, permissionPolicy)
+func GetAuthenticator(config *api.ExecConfig, cluster *clientauthentication.Cluster) (*Authenticator, error) {
+	return newAuthenticator(globalCache, term.IsTerminal, config, cluster)
 }
 
-func newAuthenticator(c *cache, isTerminalFunc func(int) bool, config *api.ExecConfig, cluster *clientauthentication.Cluster, permissionPolicy ExecPermissionProvider) (*Authenticator, error) {
+func newAuthenticator(c *cache, isTerminalFunc func(int) bool, config *api.ExecConfig, cluster *clientauthentication.Cluster) (*Authenticator, error) {
 	key := cacheKey(config, cluster)
 	if a, ok := c.get(key); ok {
 		return a, nil
@@ -184,7 +184,7 @@ func newAuthenticator(c *cache, isTerminalFunc func(int) bool, config *api.ExecC
 		cluster:            cluster,
 		provideClusterInfo: config.ProvideClusterInfo,
 
-		execPermissionProvider: config.PermissionProvider,
+		execPermissionProvider: getPermissionProvider(config.PermissionProvider.Policy, config.PermissionProvider.Allowlist),
 
 		installHint: config.InstallHint,
 		sometimes: &sometimes{
@@ -202,10 +202,6 @@ func newAuthenticator(c *cache, isTerminalFunc func(int) bool, config *api.ExecC
 		connTracker: connTracker,
 	}
 
-	if config.PermissionProvider != nil {
-		a.execPermissionProvider = config.PermissionProvider
-	}
-
 	for _, env := range config.Env {
 		a.env = append(a.env, env.Name+"="+env.Value)
 	}
@@ -216,6 +212,22 @@ func newAuthenticator(c *cache, isTerminalFunc func(int) bool, config *api.ExecC
 	a.dial = &transport.DialHolder{Dial: defaultDialer.DialContext}
 
 	return c.put(key, a), nil
+}
+
+func getPermissionProvider(policy string, list api.Allowlist) ExecPermissionProvider {
+	switch policy {
+	// Required for backward compatibility
+	case "":
+		return &PermissionAllowAll{}
+	case "AllowAll":
+		return &PermissionAllowAll{}
+	case "DenyAll":
+		return &PermissionDenyAll{}
+	case "Allowlist":
+		return (*PermissionAllowlist)(&list)
+	default:
+		return nil
+	}
 }
 
 func isInteractive(isTerminalFunc func(int) bool, config *api.ExecConfig) (bool, error) {
@@ -575,7 +587,7 @@ func (a *Authenticator) wrapCmdRunErrorLocked(err error) error {
 	}
 }
 
-var emptyAllowlistItem = AllowlistItem{}
+var emptyAllowlistItem = api.AllowlistItem{}
 
 // AllowlistItem stores the criteria specified by an entry in the credential
 // plugin allowlist. In order for a binary plugin to be permitted, it must meet
@@ -608,22 +620,7 @@ func (d *PermissionDenyAll) Allows(_ string) error {
 	return fmt.Errorf("exec plugin policy set to `DenyAll`")
 }
 
-type PermissionAllowlist struct {
-	List []AllowlistItem
-}
-
-func NewPermissionProvider(policy string, allowlist []AllowlistItem) (ExecPermissionProvider, error) {
-	switch policy {
-	case "AllowAll":
-		return &PermissionAllowAll{}, nil
-	case "DenyAll":
-		return &PermissionDenyAll{}, nil
-	case "Allowlist":
-		return &PermissionAllowlist{List: allowlist}, nil
-	default:
-		return nil, fmt.Errorf("invalid allowlist policy: %q", policy)
-	}
-}
+type PermissionAllowlist api.Allowlist
 
 func (p *PermissionAllowlist) Allows(cmd string) error {
 	pluginAbsPath, err := exec.LookPath(cmd)
@@ -632,15 +629,15 @@ func (p *PermissionAllowlist) Allows(cmd string) error {
 	}
 
 	for _, entry := range p.List {
-		if entry.greenlights(pluginAbsPath) {
+		if itemGreenlights(entry, pluginAbsPath) {
 			return nil
 		}
 	}
 
-	return fmt.Errorf("%q is not permitted by the credential plugin allowlist")
+	return fmt.Errorf("%q is not permitted by the credential plugin allowlist", cmd)
 }
 
-func (alEntry AllowlistItem) greenlights(pluginAbsPath string) bool {
+func itemGreenlights(alEntry api.AllowlistItem, pluginAbsPath string) bool {
 	// if no fields are specified, this is a user error. To avoid fail-open
 	// behavior, an empty entry must not allow anything.
 	if alEntry == emptyAllowlistItem {

@@ -129,8 +129,7 @@ func (c *Config) TransportConfig() (*transport.Config, error) {
 			}
 		}
 
-		permprovider := c.ExecProvider.PermissionProvider
-		provider, err := exec.GetAuthenticator(c.ExecProvider, cluster, permprovider)
+		provider, err := exec.GetAuthenticator(c.ExecProvider, cluster)
 		if err != nil {
 			return nil, err
 		}

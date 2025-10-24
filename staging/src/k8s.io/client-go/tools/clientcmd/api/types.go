@@ -284,24 +284,24 @@ type ExecConfig struct {
 	// +k8s:conversion-gen=false
 	StdinUnavailableMessage string `json:"-"`
 
-	// Put ExecPermissionProvider here and do not serialize it
-	PermissionProvider ExecPermissionProvider `json:"-"`
+	PermissionProvider PermissionProvider `json:"-"`
+}
+
+type AllowlistItem struct {
+	Name string `json:"-"`
+}
+
+type Allowlist struct {
+	List []AllowlistItem `json:"-"`
+}
+
+type PermissionProvider struct {
+	Policy    string    `json:"-"`
+	Allowlist Allowlist `json:"-"`
 }
 
 var _ fmt.Stringer = new(ExecConfig)
 var _ fmt.GoStringer = new(ExecConfig)
-
-// `ExecPermissionProvider` provides the interface for permitting or denying
-// the execution of an exec plugin.
-type ExecPermissionProvider interface {
-	// `Allows` determines whether or not the executable specified in its
-	// argument may run according to the credential plugin policy. Its first
-	// return value will be one of {"allow", "deny"}. If the first return value
-	// is "allow", the second return value MUST be nil. If the first return
-	// value is "deny", the second return value MUST be an error message
-	// explaining why the plugin was denied.
-	Allows(cmd string) error
-}
 
 // GoString implements fmt.GoStringer and sanitizes sensitive fields of
 // ExecConfig to prevent accidental leaking via logs.

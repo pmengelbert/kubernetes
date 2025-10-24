@@ -30,6 +30,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/util/homedir"
 	"k8s.io/kubectl/pkg/config"
 )
@@ -51,7 +52,7 @@ var (
 // arguments based on user's kuberc configuration.
 type PreferencesHandler interface {
 	AddFlags(flags *pflag.FlagSet)
-	Apply(rootCmd *cobra.Command, foo *KubercExecPemissionProvider, args []string, errOut io.Writer) ([]string, error)
+	Apply(rootCmd *cobra.Command, permprovider *clientcmdapi.PermissionProvider, args []string, errOut io.Writer) ([]string, error)
 }
 
 // Preferences stores the kuberc file coming either from environment variable
@@ -63,38 +64,6 @@ type Preferences struct {
 
 	aliases map[string]struct{}
 }
-
-// func (p *Preferences) GetAllowlist(args []string, errOut io.Writer) (exec.ExecPermissionProvider, error) {
-// 	kubercPath, err := getExplicitKuberc(args)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	prefs, err := p.GetPreferenceData(kubercPath, errOut)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	switch prefs.CredPluginPolicy {
-// 	case "DenyAll":
-// 		return &exec.PermissionDenyAll{}, nil
-// 	case "AllowAll":
-// 		return &exec.PermissionAllowAll{}, nil
-// 	case "Allowlist":
-// 		al := *prefs.CredPluginAllowlist
-// 		eal := make([]exec.AllowlistItem, len(al))
-
-// 		for _, item := range al {
-// 			eal = append(eal, exec.AllowlistItem{
-// 				Name: item.Name,
-// 			})
-// 		}
-
-// 		return &exec.PermissionAllowlist{List: eal}, nil
-// 	default:
-// 		return nil, fmt.Errorf("illegal credPluginPolicy: %q", prefs.CredPluginPolicy)
-// 	}
-// }
 
 // NewPreferences returns initialized Prefrences object.
 func NewPreferences() PreferencesHandler {
@@ -119,18 +88,9 @@ func (p *Preferences) AddFlags(flags *pflag.FlagSet) {
 	flags.String("kuberc", "", "Path to the kuberc file to use for preferences. This can be disabled by exporting KUBECTL_KUBERC=false feature gate or turning off the feature KUBERC=off.")
 }
 
-type KubercExecPemissionProvider struct {
-	allows func(cmd string) error
-}
-
-func (f *KubercExecPemissionProvider) Allows(cmd string) error {
-	// nil check
-	return f.allows(cmd)
-}
-
 // Apply firstly applies the aliases in the preferences file and secondly overrides
 // the default values of flags.
-func (p *Preferences) Apply(rootCmd *cobra.Command, permprovider *KubercExecPemissionProvider, args []string, errOut io.Writer) ([]string, error) {
+func (p *Preferences) Apply(rootCmd *cobra.Command, permprovider *clientcmdapi.PermissionProvider, args []string, errOut io.Writer) ([]string, error) {
 	if len(args) <= 1 {
 		return args, nil
 	}
@@ -146,8 +106,17 @@ func (p *Preferences) Apply(rootCmd *cobra.Command, permprovider *KubercExecPemi
 	}
 
 	if permprovider != nil {
-		permprovider.allows = func(cmd string) error {
-			return fmt.Errorf("you should see this error")
+		permprovider.Policy = kuberc.CredPluginPolicy
+
+		if kuberc.CredPluginAllowlist != nil {
+			allowlist := make([]clientcmdapi.AllowlistItem, 0, len(*kuberc.CredPluginAllowlist))
+			for _, item := range *kuberc.CredPluginAllowlist {
+				allowlist = append(allowlist, clientcmdapi.AllowlistItem{
+					Name: item.Name,
+				})
+			}
+
+			permprovider.Allowlist = clientcmdapi.Allowlist{List: allowlist}
 		}
 	}
 

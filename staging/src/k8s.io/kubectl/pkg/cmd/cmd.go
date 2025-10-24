@@ -31,6 +31,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	cliflag "k8s.io/component-base/cli/flag"
 	"k8s.io/klog/v2"
 	"k8s.io/kubectl/pkg/cmd/annotate"
@@ -373,18 +374,14 @@ func NewKubectlCommand(o KubectlOptions) *cobra.Command {
 	}
 	kubeConfigFlags.AddFlags(flags)
 
-	var permissionProvider *kuberc.KubercExecPemissionProvider
-	if !cmdutil.KubeRC.IsDisabled() {
-		permissionProvider = new(kuberc.KubercExecPemissionProvider)
+	var permissionProvider clientcmdapi.PermissionProvider
+	kubeConfigFlags = kubeConfigFlags.WithWrapConfigFn(func(c *rest.Config) *rest.Config {
+		if c.ExecProvider != nil {
+			c.ExecProvider.PermissionProvider = permissionProvider
+		}
 
-		kubeConfigFlags = kubeConfigFlags.WithWrapConfigFn(func(c *rest.Config) *rest.Config {
-			if c.ExecProvider != nil {
-				c.ExecProvider.PermissionProvider = permissionProvider
-			}
-
-			return c
-		})
-	}
+		return c
+	})
 
 	matchVersionKubeConfigFlags := cmdutil.NewMatchVersionFlags(kubeConfigFlags)
 	matchVersionKubeConfigFlags.AddFlags(flags)
@@ -522,7 +519,7 @@ func NewKubectlCommand(o KubectlOptions) *cobra.Command {
 			}
 			return existingPreRunE(cmd, args)
 		}
-		_, err := pref.Apply(cmds, permissionProvider, o.Arguments, o.IOStreams.ErrOut)
+		_, err := pref.Apply(cmds, &permissionProvider, o.Arguments, o.IOStreams.ErrOut)
 		if err != nil {
 			fmt.Fprintf(o.IOStreams.ErrOut, "error occurred while applying preferences %v\n", err)
 			os.Exit(1)
