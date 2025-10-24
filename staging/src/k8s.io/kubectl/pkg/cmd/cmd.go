@@ -29,7 +29,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"k8s.io/cli-runtime/pkg/genericiooptions"
-	authexec "k8s.io/client-go/plugin/pkg/client/auth/exec"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	cliflag "k8s.io/component-base/cli/flag"
@@ -75,7 +74,6 @@ import (
 	"k8s.io/kubectl/pkg/cmd/version"
 	"k8s.io/kubectl/pkg/cmd/wait"
 	"k8s.io/kubectl/pkg/kuberc"
-	"k8s.io/kubectl/pkg/util"
 	utilcomp "k8s.io/kubectl/pkg/util/completion"
 	"k8s.io/kubectl/pkg/util/i18n"
 	"k8s.io/kubectl/pkg/util/templates"
@@ -375,27 +373,17 @@ func NewKubectlCommand(o KubectlOptions) *cobra.Command {
 	}
 	kubeConfigFlags.AddFlags(flags)
 
-	pp := &authexec.PermissionAllowAll{}
-	kubeConfigFlags = kubeConfigFlags.WithWrapConfigFn(func(c *rest.Config) *rest.Config {
-		c.ExecPermissionProvider = pp
-		return c
-	})
-	foo := kuberc.Foo{}
+	var permissionProvider *kuberc.KubercExecPemissionProvider
 	if !cmdutil.KubeRC.IsDisabled() {
-		p, err := pref.GetPreferenceData(o.Arguments, o.IOStreams.ErrOut)
-		if err != nil {
-			fmt.Fprintf(o.IOStreams.ErrOut, "error occurred while getting allowlist %v\n", err)
-			os.Exit(1)
-		}
+		permissionProvider = new(kuberc.KubercExecPemissionProvider)
 
-		policy := p.CredPluginPolicy
-		al := p.CredPluginAllowlist
-		pp, err := authexec.NewPermissionProvider(policy, util.ConvertAllowlist(al))
-		if err != nil {
-			fmt.Fprintf(o.IOStreams.ErrOut, "error occurred while processing allowlist %v\n", err)
-			os.Exit(1)
-		}
+		kubeConfigFlags = kubeConfigFlags.WithWrapConfigFn(func(c *rest.Config) *rest.Config {
+			if c.ExecProvider != nil {
+				c.ExecProvider.PermissionProvider = permissionProvider
+			}
 
+			return c
+		})
 	}
 
 	matchVersionKubeConfigFlags := cmdutil.NewMatchVersionFlags(kubeConfigFlags)
@@ -534,7 +522,7 @@ func NewKubectlCommand(o KubectlOptions) *cobra.Command {
 			}
 			return existingPreRunE(cmd, args)
 		}
-		_, err := pref.Apply(cmds, &foo, o.Arguments, o.IOStreams.ErrOut)
+		_, err := pref.Apply(cmds, permissionProvider, o.Arguments, o.IOStreams.ErrOut)
 		if err != nil {
 			fmt.Fprintf(o.IOStreams.ErrOut, "error occurred while applying preferences %v\n", err)
 			os.Exit(1)

@@ -24,19 +24,11 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/cli-runtime/pkg/genericclioptions"
-	"k8s.io/client-go/discovery"
-	"k8s.io/client-go/discovery/cached/disk"
-	"k8s.io/client-go/plugin/pkg/client/auth/exec"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
 	"k8s.io/kubectl/pkg/config"
@@ -59,8 +51,7 @@ var (
 // arguments based on user's kuberc configuration.
 type PreferencesHandler interface {
 	AddFlags(flags *pflag.FlagSet)
-	Apply(rootCmd *cobra.Command, args []string, errOut io.Writer) ([]string, error)
-	GetPreferenceData(args []string, errOut io.Writer) (*config.Preference, error)
+	Apply(rootCmd *cobra.Command, foo *KubercExecPemissionProvider, args []string, errOut io.Writer) ([]string, error)
 }
 
 // Preferences stores the kuberc file coming either from environment variable
@@ -71,25 +62,6 @@ type Preferences struct {
 	err                error
 
 	aliases map[string]struct{}
-}
-
-func (p *Preferences) GetPreferenceData(args []string, errOut io.Writer) (*config.Preference, error) {
-	if p.preferences != nil {
-		return p.preferences, nil
-	}
-
-	kubercPath, err := getExplicitKuberc(args)
-	if err != nil {
-		return nil, err
-	}
-
-	pref, err := p.getPreferencesFunc(kubercPath, errOut)
-	if err != nil {
-		return nil, err
-	}
-
-	p.preferences = pref
-	return p.preferences, nil
 }
 
 // func (p *Preferences) GetAllowlist(args []string, errOut io.Writer) (exec.ExecPermissionProvider, error) {
@@ -124,77 +96,6 @@ func (p *Preferences) GetPreferenceData(args []string, errOut io.Writer) (*confi
 // 	}
 // }
 
-type allowlistRESTClientGetter struct {
-	cg genericclioptions.RESTClientGetter
-	pp exec.ExecPermissionProvider
-}
-
-// ToRESTConfig returns restconfig
-func (a *allowlistRESTClientGetter) ToRESTConfig() (*rest.Config, error) {
-	cfg, err := a.cg.ToRESTConfig()
-	if err != nil {
-		return cfg, err
-	}
-
-	cfg.ExecPermissionProvider = a.pp
-	return cfg, nil
-}
-
-// ToDiscoveryClient returns discovery client
-func (a *allowlistRESTClientGetter) ToDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
-	cfg, err := a.ToRESTConfig()
-	if err != nil {
-		return nil, err
-	}
-
-	cacheDir := filepath.Join(homedir.HomeDir(), ".kube", "cache")
-	if kcd := os.Getenv("KUBECACHEDIR"); kcd != "" {
-		cacheDir = kcd
-	}
-
-	computeDiscoverCacheDir := func(parentDir, host string) string {
-		var overlyCautiousIllegalFileCharacters = regexp.MustCompile(`[^(\w/.)]`)
-
-		// strip the optional scheme from host if its there:
-		schemelessHost := strings.Replace(strings.Replace(host, "https://", "", 1), "http://", "", 1)
-		// now do a simple collapse of non-AZ09 characters.  Collisions are possible but unlikely.  Even if we do collide the problem is short lived
-		safeHost := overlyCautiousIllegalFileCharacters.ReplaceAllString(schemelessHost, "_")
-		return filepath.Join(parentDir, safeHost)
-	}
-
-	httpCacheDir := filepath.Join(cacheDir, "http")
-	discoveryCacheDir := computeDiscoverCacheDir(filepath.Join(cacheDir, "discovery"), cfg.Host)
-
-	return disk.NewCachedDiscoveryClientForConfig(cfg, discoveryCacheDir, httpCacheDir, time.Duration(6*time.Hour))
-}
-
-// ToRESTMapper returns a restmapper
-func (a *allowlistRESTClientGetter) ToRESTMapper() (meta.RESTMapper, error) {
-	discoveryClient, err := a.ToDiscoveryClient()
-	if err != nil {
-		return nil, err
-	}
-
-	mapper := restmapper.NewDeferredDiscoveryRESTMapper(discoveryClient)
-	expander := restmapper.NewShortcutExpander(mapper, discoveryClient, func(a string) {
-	})
-
-	return expander, nil
-}
-
-// ToRawKubeConfigLoader return kubeconfig loader as-is
-func (a *allowlistRESTClientGetter) ToRawKubeConfigLoader() clientcmd.ClientConfig {
-	return a.cg.ToRawKubeConfigLoader()
-}
-
-func WrapRESTClientGetter(wrapee genericclioptions.RESTClientGetter, pp exec.ExecPermissionProvider) genericclioptions.RESTClientGetter {
-	return &allowlistRESTClientGetter{cg: wrapee, pp: pp}
-}
-
-// func (p *Preferences) ApplyAllowlist(cg genericclioptions.RESTClientGetter) genericclioptions.RESTClientGetter {
-// 	return &allowlistRESTClientGetter{cg: cg, pp: &exec.PermissionDenyAll{}}
-// }
-
 // NewPreferences returns initialized Prefrences object.
 func NewPreferences() PreferencesHandler {
 	p := &Preferences{
@@ -218,33 +119,37 @@ func (p *Preferences) AddFlags(flags *pflag.FlagSet) {
 	flags.String("kuberc", "", "Path to the kuberc file to use for preferences. This can be disabled by exporting KUBECTL_KUBERC=false feature gate or turning off the feature KUBERC=off.")
 }
 
-type Foo struct {
-	allow func(abc string) error
+type KubercExecPemissionProvider struct {
+	allows func(cmd string) error
 }
 
-func (f *Foo) Allow(abc string) error {
+func (f *KubercExecPemissionProvider) Allows(cmd string) error {
 	// nil check
-	return f.allow(abc)
+	return f.allows(cmd)
 }
 
 // Apply firstly applies the aliases in the preferences file and secondly overrides
 // the default values of flags.
-func (p *Preferences) Apply(rootCmd *cobra.Command, foo *Foo, args []string, errOut io.Writer) ([]string, error) {
+func (p *Preferences) Apply(rootCmd *cobra.Command, permprovider *KubercExecPemissionProvider, args []string, errOut io.Writer) ([]string, error) {
 	if len(args) <= 1 {
 		return args, nil
 	}
 
-	kuberc, err := p.GetPreferenceData(args, errOut)
+	kubercPath, err := getExplicitKuberc(args)
+	if err != nil {
+		return nil, err
+	}
+
+	kuberc, err := p.getPreferencesFunc(kubercPath, errOut)
 	if err != nil {
 		return args, fmt.Errorf("kuberc error %w", err)
 	}
 
-	var x foo
-	x.allow = func(abc string) error {
-		return fmt.Errorf("do your thing in there")
+	if permprovider != nil {
+		permprovider.allows = func(cmd string) error {
+			return fmt.Errorf("you should see this error")
+		}
 	}
-
-	// apply allowlist
 
 	if kuberc == nil {
 		return args, nil

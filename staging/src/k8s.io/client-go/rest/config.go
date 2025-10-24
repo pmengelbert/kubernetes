@@ -36,7 +36,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/serializer/cbor"
 	"k8s.io/client-go/features"
 	"k8s.io/client-go/pkg/version"
-	"k8s.io/client-go/plugin/pkg/client/auth/exec"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/transport"
 	certutil "k8s.io/client-go/util/cert"
@@ -90,8 +89,7 @@ type Config struct {
 	AuthConfigPersister AuthProviderConfigPersister
 
 	// Exec-based authentication provider.
-	ExecProvider           *clientcmdapi.ExecConfig
-	ExecPermissionProvider exec.ExecPermissionProvider
+	ExecProvider *clientcmdapi.ExecConfig
 
 	// TLSClientConfig contains settings to enable transport layer security
 	TLSClientConfig
@@ -674,10 +672,9 @@ func CopyConfig(config *Config) *Config {
 			Groups:   config.Impersonate.Groups,
 			Extra:    config.Impersonate.Extra,
 		},
-		AuthProvider:           config.AuthProvider,
-		AuthConfigPersister:    config.AuthConfigPersister,
-		ExecProvider:           config.ExecProvider,
-		ExecPermissionProvider: config.ExecPermissionProvider,
+		AuthProvider:        config.AuthProvider,
+		AuthConfigPersister: config.AuthConfigPersister,
+		ExecProvider:        config.ExecProvider,
 		TLSClientConfig: TLSClientConfig{
 			Insecure:   config.TLSClientConfig.Insecure,
 			ServerName: config.TLSClientConfig.ServerName,

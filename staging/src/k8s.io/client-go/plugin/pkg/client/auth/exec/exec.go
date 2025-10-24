@@ -177,12 +177,6 @@ func newAuthenticator(c *cache, isTerminalFunc func(int) bool, config *api.ExecC
 		connTracker,
 	)
 
-	// For backward compatibility, we must allow all if no policy has been provided.
-	var epp ExecPermissionProvider = &PermissionAllowAll{}
-	if permissionPolicy != nil {
-		epp = permissionPolicy
-	}
-
 	a := &Authenticator{
 		cmd:                config.Command,
 		args:               config.Args,
@@ -190,8 +184,7 @@ func newAuthenticator(c *cache, isTerminalFunc func(int) bool, config *api.ExecC
 		cluster:            cluster,
 		provideClusterInfo: config.ProvideClusterInfo,
 
-		// TODO(pmengelbert)
-		execPermissionProvider: epp,
+		execPermissionProvider: config.PermissionProvider,
 
 		installHint: config.InstallHint,
 		sometimes: &sometimes{
@@ -207,6 +200,10 @@ func newAuthenticator(c *cache, isTerminalFunc func(int) bool, config *api.ExecC
 		environ:         os.Environ,
 
 		connTracker: connTracker,
+	}
+
+	if config.PermissionProvider != nil {
+		a.execPermissionProvider = config.PermissionProvider
 	}
 
 	for _, env := range config.Env {
@@ -291,6 +288,21 @@ type Authenticator struct {
 	// dial is used for clients which do not specify a custom dialer
 	// it is comparable to support TLS config caching
 	dial *transport.DialHolder
+}
+
+// `Allows` determines whether or not the executable specified in its
+// argument may run according to the credential plugin policy. Its first
+// return value will be one of {"allow", "deny"}. If the first return value
+// is "allow", the second return value MUST be nil. If the first return
+// value is "deny", the second return value MUST be an error message
+// explaining why the plugin was denied.
+func (a *Authenticator) Allows(cmd string) error {
+	// This is necessary for backward compatibility
+	if a.execPermissionProvider == nil {
+		return nil
+	}
+
+	return a.execPermissionProvider.Allows(cmd)
 }
 
 type credentials struct {
@@ -454,10 +466,8 @@ func (a *Authenticator) refreshCredsLocked() error {
 		cmd.Stdin = a.stdin
 	}
 
-	if a.execPermissionProvider != nil {
-		if result, err := a.execPermissionProvider.Allows(a.cmd); result != ExecPermissionProviderResultAllow {
-			return err
-		}
+	if err := a.Allows(a.cmd); err != nil {
+		return err
 	}
 
 	err = cmd.Run()
@@ -574,13 +584,6 @@ type AllowlistItem struct {
 	Name string
 }
 
-type ExecPermissionProviderResult string
-
-const (
-	ExecPermissionProviderResultAllow ExecPermissionProviderResult = "allow"
-	ExecPermissionProviderResultDeny  ExecPermissionProviderResult = "deny"
-)
-
 // `ExecPermissionProvider` provides the interface for permitting or denying
 // the execution of an exec plugin.
 type ExecPermissionProvider interface {
@@ -590,19 +593,19 @@ type ExecPermissionProvider interface {
 	// is "allow", the second return value MUST be nil. If the first return
 	// value is "deny", the second return value MUST be an error message
 	// explaining why the plugin was denied.
-	Allows(string) (ExecPermissionProviderResult, error)
+	Allows(cmd string) error
 }
 
 type PermissionAllowAll struct{}
 
-func (_ *PermissionAllowAll) Allows(_ string) (ExecPermissionProviderResult, error) {
-	return ExecPermissionProviderResultAllow, nil
+func (_ *PermissionAllowAll) Allows(_ string) error {
+	return nil
 }
 
 type PermissionDenyAll struct{}
 
-func (d *PermissionDenyAll) Allows(_ string) (ExecPermissionProviderResult, error) {
-	return ExecPermissionProviderResultDeny, fmt.Errorf("exec plugin policy set to `DenyAll`")
+func (d *PermissionDenyAll) Allows(_ string) error {
+	return fmt.Errorf("exec plugin policy set to `DenyAll`")
 }
 
 type PermissionAllowlist struct {
@@ -622,19 +625,19 @@ func NewPermissionProvider(policy string, allowlist []AllowlistItem) (ExecPermis
 	}
 }
 
-func (p *PermissionAllowlist) Allows(cmd string) (ExecPermissionProviderResult, error) {
+func (p *PermissionAllowlist) Allows(cmd string) error {
 	pluginAbsPath, err := exec.LookPath(cmd)
 	if err != nil {
-		return ExecPermissionProviderResultDeny, fmt.Errorf("%w: could not resolve path of exec plugin command %q", err, cmd)
+		return fmt.Errorf("%w: could not resolve path of exec plugin command %q", err, cmd)
 	}
 
 	for _, entry := range p.List {
 		if entry.greenlights(pluginAbsPath) {
-			return ExecPermissionProviderResultAllow, nil
+			return nil
 		}
 	}
 
-	return ExecPermissionProviderResultDeny, fmt.Errorf("%q is not permitted by the credential plugin allowlist")
+	return fmt.Errorf("%q is not permitted by the credential plugin allowlist")
 }
 
 func (alEntry AllowlistItem) greenlights(pluginAbsPath string) bool {
