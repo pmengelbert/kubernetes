@@ -105,6 +105,8 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 	}
 	svcacct := svcacctObj.(*api.ServiceAccount)
 
+	attestationClaims := req.Spec.AttestationClaims
+
 	if len(req.UID) > 0 && req.UID != svcacct.UID {
 		if utilfeature.DefaultFeatureGate.Enabled(genericfeatures.TokenRequestServiceAccountUIDValidation) {
 			return nil, errors.NewConflict(schema.GroupResource{Group: gvk.Group, Resource: gvk.Kind}, name, fmt.Errorf("the UID in the token request (%s) does not match the UID of the service account (%s)", req.UID, svcacct.UID))
@@ -236,7 +238,7 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 		exp = r.maxExtendedExpirationSeconds
 	}
 
-	sc, pc, err := token.Claims(*svcacct, pod, secret, node, exp, warnAfter, req.Spec.Audiences)
+	sc, pc, err := token.Claims(*svcacct, pod, secret, node, exp, warnAfter, req.Spec.Audiences, attestationClaims)
 	if err != nil {
 		return nil, err
 	}

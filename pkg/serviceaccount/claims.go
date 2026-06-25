@@ -54,12 +54,13 @@ type privateClaims struct {
 }
 
 type kubernetes struct {
-	Namespace string           `json:"namespace,omitempty"`
-	Svcacct   ref              `json:"serviceaccount,omitempty"`
-	Pod       *ref             `json:"pod,omitempty"`
-	Secret    *ref             `json:"secret,omitempty"`
-	Node      *ref             `json:"node,omitempty"`
-	WarnAfter *jwt.NumericDate `json:"warnafter,omitempty"`
+	Namespace         string              `json:"namespace,omitempty"`
+	Svcacct           ref                 `json:"serviceaccount,omitempty"`
+	Pod               *ref                `json:"pod,omitempty"`
+	Secret            *ref                `json:"secret,omitempty"`
+	Node              *ref                `json:"node,omitempty"`
+	AttestationClaims map[string][]string `json:"attestationClaims,omitempty"`
+	WarnAfter         *jwt.NumericDate    `json:"warnafter,omitempty"`
 }
 
 type ref struct {
@@ -67,7 +68,7 @@ type ref struct {
 	UID  string `json:"uid,omitempty"`
 }
 
-func Claims(sa core.ServiceAccount, pod *core.Pod, secret *core.Secret, node *core.Node, expirationSeconds, warnafter int64, audience []string) (*jwt.Claims, interface{}, error) {
+func Claims(sa core.ServiceAccount, pod *core.Pod, secret *core.Secret, node *core.Node, expirationSeconds, warnafter int64, audience []string, attestationClaims map[string][]string) (*jwt.Claims, interface{}, error) {
 	now := now()
 	sc := &jwt.Claims{
 		Subject:   apiserverserviceaccount.MakeUsername(sa.Namespace, sa.Name),
@@ -86,6 +87,7 @@ func Claims(sa core.ServiceAccount, pod *core.Pod, secret *core.Secret, node *co
 				Name: sa.Name,
 				UID:  string(sa.UID),
 			},
+			AttestationClaims: attestationClaims,
 		},
 	}
 
