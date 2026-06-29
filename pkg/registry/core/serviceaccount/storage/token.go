@@ -219,6 +219,10 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 			secret = secretObj.(*api.Secret)
 			uid = secret.UID
 		case gvk.Group == "admissionregistration" && gvk.Kind == "ValidatingWebhookConfiguration":
+			// shared logic in function call
+			func() {
+				// authz check -- can user create svcacct tokens
+			}()
 			newCtx := newContext(ctx, "validatingWebhookConfigurations", ref.Name, "", gvk)
 			valObj, err := r.validatingWebhookConfigurations.Get(newCtx, ref.Name, &metav1.GetOptions{})
 			if err != nil {
