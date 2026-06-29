@@ -39,6 +39,7 @@ import (
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/apiserver/pkg/warning"
 	"k8s.io/klog/v2"
+	"k8s.io/kubernetes/pkg/apis/admissionregistration"
 	authenticationapi "k8s.io/kubernetes/pkg/apis/authentication"
 	authenticationvalidation "k8s.io/kubernetes/pkg/apis/authentication/validation"
 	api "k8s.io/kubernetes/pkg/apis/core"
@@ -57,16 +58,18 @@ func (r *TokenREST) Destroy() {
 }
 
 type TokenREST struct {
-	svcaccts                     rest.Getter
-	pods                         rest.Getter
-	secrets                      rest.Getter
-	nodes                        rest.Getter
-	issuer                       token.TokenGenerator
-	auds                         authenticator.Audiences
-	audsSet                      sets.String
-	maxExpirationSeconds         int64
-	extendExpiration             bool
-	maxExtendedExpirationSeconds int64
+	svcaccts                        rest.Getter
+	pods                            rest.Getter
+	secrets                         rest.Getter
+	nodes                           rest.Getter
+	validatingWebhookConfigurations rest.Getter
+	mutatingWebhookConfigurations   rest.Getter
+	issuer                          token.TokenGenerator
+	auds                            authenticator.Audiences
+	audsSet                         sets.String
+	maxExpirationSeconds            int64
+	extendExpiration                bool
+	maxExtendedExpirationSeconds    int64
 }
 
 var _ = rest.NamedCreater(&TokenREST{})
@@ -151,9 +154,11 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 	}
 
 	var (
-		pod    *api.Pod
-		node   *api.Node
-		secret *api.Secret
+		pod        *api.Pod
+		node       *api.Node
+		secret     *api.Secret
+		validating *admissionregistration.ValidatingWebhookConfiguration
+		mutating   *admissionregistration.MutatingWebhookConfiguration
 	)
 
 	if ref := req.Spec.BoundObjectRef; ref != nil {
@@ -213,6 +218,20 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 			}
 			secret = secretObj.(*api.Secret)
 			uid = secret.UID
+		case gvk.Group == "admissionregistration" && gvk.Kind == "ValidatingWebhookConfiguration":
+			newCtx := newContext(ctx, "validatingWebhookConfigurations", ref.Name, "", gvk)
+			valObj, err := r.validatingWebhookConfigurations.Get(newCtx, ref.Name, &metav1.GetOptions{})
+			if err != nil {
+				return nil, err
+			}
+			validating = valObj.(*admissionregistration.ValidatingWebhookConfiguration)
+		case gvk.Group == "admissionregistration" && gvk.Kind == "MutatingWebhookConfiguration":
+			newCtx := newContext(ctx, "mutatingWebhookConfigurations", ref.Name, "", gvk)
+			valObj, err := r.mutatingWebhookConfigurations.Get(newCtx, ref.Name, &metav1.GetOptions{})
+			if err != nil {
+				return nil, err
+			}
+			mutating = valObj.(*admissionregistration.MutatingWebhookConfiguration)
 		default:
 			return nil, errors.NewBadRequest(fmt.Sprintf("cannot bind token to object of type %s", gvk.String()))
 		}
@@ -238,7 +257,7 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 		exp = r.maxExtendedExpirationSeconds
 	}
 
-	sc, pc, err := token.Claims(*svcacct, pod, secret, node, exp, warnAfter, req.Spec.Audiences, attestationClaims)
+	sc, pc, err := token.Claims(*svcacct, pod, secret, node, validating, mutating, exp, warnAfter, req.Spec.Audiences, attestationClaims)
 	if err != nil {
 		return nil, err
 	}

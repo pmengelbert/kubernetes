@@ -30,6 +30,8 @@ import (
 	authenticationtokenjwt "k8s.io/apiserver/pkg/authentication/token/jwt"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/klog/v2"
+	"k8s.io/kubernetes/pkg/apis/admissionregistration"
+	"k8s.io/kubernetes/pkg/apis/authentication"
 	"k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/features"
 )
@@ -54,13 +56,13 @@ type privateClaims struct {
 }
 
 type kubernetes struct {
-	Namespace         string              `json:"namespace,omitempty"`
-	Svcacct           ref                 `json:"serviceaccount,omitempty"`
-	Pod               *ref                `json:"pod,omitempty"`
-	Secret            *ref                `json:"secret,omitempty"`
-	Node              *ref                `json:"node,omitempty"`
-	AttestationClaims map[string][]string `json:"attestationClaims,omitempty"`
-	WarnAfter         *jwt.NumericDate    `json:"warnafter,omitempty"`
+	Namespace         string                                          `json:"namespace,omitempty"`
+	Svcacct           ref                                             `json:"serviceaccount,omitempty"`
+	Pod               *ref                                            `json:"pod,omitempty"`
+	Secret            *ref                                            `json:"secret,omitempty"`
+	Node              *ref                                            `json:"node,omitempty"`
+	AttestationClaims map[string]authentication.AttestationClaimValue `json:"attestationClaims,omitempty"`
+	WarnAfter         *jwt.NumericDate                                `json:"warnafter,omitempty"`
 }
 
 type ref struct {
@@ -68,7 +70,7 @@ type ref struct {
 	UID  string `json:"uid,omitempty"`
 }
 
-func Claims(sa core.ServiceAccount, pod *core.Pod, secret *core.Secret, node *core.Node, expirationSeconds, warnafter int64, audience []string, attestationClaims map[string][]string) (*jwt.Claims, interface{}, error) {
+func Claims(sa core.ServiceAccount, pod *core.Pod, secret *core.Secret, node *core.Node, validating *admissionregistration.ValidatingWebhookConfiguration, mutating *admissionregistration.MutatingWebhookConfiguration, expirationSeconds, warnafter int64, audience []string, attestationClaims map[string]authentication.AttestationClaimValue) (*jwt.Claims, interface{}, error) {
 	now := now()
 	sc := &jwt.Claims{
 		Subject:   apiserverserviceaccount.MakeUsername(sa.Namespace, sa.Name),

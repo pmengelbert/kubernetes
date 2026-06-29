@@ -777,7 +777,7 @@ func TestServiceAccountTokenCreate(t *testing.T) {
 		coresa := core.ServiceAccount{
 			ObjectMeta: sa.ObjectMeta,
 		}
-		_, pc, err := serviceaccount.Claims(coresa, nil, nil, nil, 0, 0, nil, nil)
+		_, pc, err := serviceaccount.Claims(coresa, nil, nil, nil, nil, nil, 0, 0, nil, nil)
 		if err != nil {
 			t.Fatalf("err calling Claims: %v", err)
 		}
