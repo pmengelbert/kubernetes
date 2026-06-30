@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"time"
 
+	admissionregistration "k8s.io/api/admissionregistration/v1"
 	authenticationapiv1 "k8s.io/api/authentication/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,13 +34,14 @@ import (
 	"k8s.io/apiserver/pkg/authentication/authenticator"
 	"k8s.io/apiserver/pkg/authentication/serviceaccount"
 	authenticationtokenjwt "k8s.io/apiserver/pkg/authentication/token/jwt"
+	"k8s.io/apiserver/pkg/authorization/authorizer"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	genericfeatures "k8s.io/apiserver/pkg/features"
 	"k8s.io/apiserver/pkg/registry/rest"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/apiserver/pkg/warning"
+	admissionregistrationv1 "k8s.io/client-go/kubernetes/typed/admissionregistration/v1"
 	"k8s.io/klog/v2"
-	"k8s.io/kubernetes/pkg/apis/admissionregistration"
 	authenticationapi "k8s.io/kubernetes/pkg/apis/authentication"
 	authenticationvalidation "k8s.io/kubernetes/pkg/apis/authentication/validation"
 	api "k8s.io/kubernetes/pkg/apis/core"
@@ -62,8 +64,9 @@ type TokenREST struct {
 	pods                            rest.Getter
 	secrets                         rest.Getter
 	nodes                           rest.Getter
-	validatingWebhookConfigurations rest.Getter
-	mutatingWebhookConfigurations   rest.Getter
+	validatingWebhookConfigurations admissionregistrationv1.ValidatingWebhookConfigurationInterface
+	mutatingWebhookConfigurations   admissionregistrationv1.MutatingWebhookConfigurationInterface
+	authorizer                      authorizer.Authorizer
 	issuer                          token.TokenGenerator
 	auds                            authenticator.Audiences
 	audsSet                         sets.String
@@ -224,18 +227,18 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 				// authz check -- can user create svcacct tokens
 			}()
 			newCtx := newContext(ctx, "validatingWebhookConfigurations", ref.Name, "", gvk)
-			valObj, err := r.validatingWebhookConfigurations.Get(newCtx, ref.Name, &metav1.GetOptions{})
+			valObj, err := r.validatingWebhookConfigurations.Get(newCtx, ref.Name, metav1.GetOptions{})
 			if err != nil {
 				return nil, err
 			}
-			validating = valObj.(*admissionregistration.ValidatingWebhookConfiguration)
+			validating = valObj
 		case gvk.Group == "admissionregistration" && gvk.Kind == "MutatingWebhookConfiguration":
 			newCtx := newContext(ctx, "mutatingWebhookConfigurations", ref.Name, "", gvk)
-			valObj, err := r.mutatingWebhookConfigurations.Get(newCtx, ref.Name, &metav1.GetOptions{})
+			mutObj, err := r.mutatingWebhookConfigurations.Get(newCtx, ref.Name, metav1.GetOptions{})
 			if err != nil {
 				return nil, err
 			}
-			mutating = valObj.(*admissionregistration.MutatingWebhookConfiguration)
+			mutating = mutObj
 		default:
 			return nil, errors.NewBadRequest(fmt.Sprintf("cannot bind token to object of type %s", gvk.String()))
 		}
