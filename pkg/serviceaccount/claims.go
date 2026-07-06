@@ -56,15 +56,15 @@ type privateClaims struct {
 }
 
 type kubernetes struct {
-	Namespace                      string                                          `json:"namespace,omitempty"`
-	Svcacct                        ref                                             `json:"serviceaccount,omitempty"`
-	Pod                            *ref                                            `json:"pod,omitempty"`
-	Secret                         *ref                                            `json:"secret,omitempty"`
-	Node                           *ref                                            `json:"node,omitempty"`
-	ValidatingWebhookConfiguration *ref                                            `json:"validatingWebhookConfiguration,omitempty"`
-	MutatingWebhookConfiguration   *ref                                            `json:"mutatingWebhookConfiguration,omitempty"`
-	AttestationClaims              map[string]authentication.AttestationClaimValue `json:"attestationClaims,omitempty"`
-	WarnAfter                      *jwt.NumericDate                                `json:"warnafter,omitempty"`
+	Namespace                      string              `json:"namespace,omitempty"`
+	Svcacct                        ref                 `json:"serviceaccount,omitempty"`
+	Pod                            *ref                `json:"pod,omitempty"`
+	Secret                         *ref                `json:"secret,omitempty"`
+	Node                           *ref                `json:"node,omitempty"`
+	ValidatingWebhookConfiguration *ref                `json:"validatingwebhookconfiguration,omitempty"`
+	MutatingWebhookConfiguration   *ref                `json:"mutatingwebhookconfiguration,omitempty"`
+	Attestations                   map[string][]string `json:"attestations,omitempty"`
+	WarnAfter                      *jwt.NumericDate    `json:"warnafter,omitempty"`
 }
 
 type ref struct {
@@ -91,7 +91,7 @@ func Claims(sa core.ServiceAccount, pod *core.Pod, secret *core.Secret, node *co
 				Name: sa.Name,
 				UID:  string(sa.UID),
 			},
-			AttestationClaims: attestationClaims,
+			Attestations: attestationClaims,
 		},
 	}
 

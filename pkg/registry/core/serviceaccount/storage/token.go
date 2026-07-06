@@ -226,7 +226,7 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 		case gvk.Group == "admissionregistration" && gvk.Kind == "ValidatingWebhookConfiguration":
 			// shared logic in function call
 			newCtx := newContext(ctx, "validatingWebhookConfigurations", ref.Name, "", gvk)
-			attestationAPIGroupSlice, ok := attestationClaims[authenticationapi.ClaimAllowedAPIGroup]
+			attestationAPIGroupSlice, ok := attestationClaims[authenticationapi.AttestationAdmissionReviewAPIGroups]
 			if !ok {
 				return nil, errors.NewBadRequest("allowedAPIGroup must be a requested attestationClaim")
 			}

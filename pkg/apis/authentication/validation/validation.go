@@ -39,7 +39,7 @@ func ValidateTokenRequest(tr *authentication.TokenRequest) field.ErrorList {
 	if tr.Spec.Attestations != nil {
 		for claimKey := range tr.Spec.Attestations {
 			switch claimKey {
-			case authentication.ClaimAllowedAPIGroup:
+			case authentication.AttestationAdmissionReviewAPIGroups:
 			default:
 				allErrs = append(allErrs, field.Invalid(specPath.Child("attestationClaims"), claimKey, "may not specify an unknown key"))
 			}

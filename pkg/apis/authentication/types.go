@@ -43,7 +43,7 @@ const (
 	// admission webhooks about. The value corresponding to this key must
 	// be a slice of length 1, and the first and only element of this slice
 	// must indicate the api group.
-	ClaimAllowedAPIGroup = "allowedAPIGroup"
+	AttestationAdmissionReviewAPIGroups = "admissionReviewAPIGroups"
 )
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
