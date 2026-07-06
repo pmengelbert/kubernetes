@@ -195,7 +195,7 @@ type TokenRequestSpec struct {
 	// the Kubernetes API Server to attest to certain claims. The API Server
 	// may perform authorization checks depending on the contents of this field.
 	// +optional
-	Attestations map[string][]string
+	Attestations map[string][]string `protobuf:"bytes,5,rep,name=attestations"`
 }
 
 // TokenRequestStatus is the result of a token request.

@@ -32,8 +32,6 @@ import (
 	k8s_io_apimachinery_pkg_types "k8s.io/apimachinery/pkg/types"
 )
 
-func (m *AttestationClaimValue) Reset() { *m = AttestationClaimValue{} }
-
 func (m *BoundObjectReference) Reset() { *m = BoundObjectReference{} }
 
 func (m *ExtraValue) Reset() { *m = ExtraValue{} }
@@ -55,38 +53,6 @@ func (m *TokenReviewSpec) Reset() { *m = TokenReviewSpec{} }
 func (m *TokenReviewStatus) Reset() { *m = TokenReviewStatus{} }
 
 func (m *UserInfo) Reset() { *m = UserInfo{} }
-
-func (m AttestationClaimValue) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m AttestationClaimValue) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m AttestationClaimValue) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if len(m) > 0 {
-		for iNdEx := len(m) - 1; iNdEx >= 0; iNdEx-- {
-			i -= len(m[iNdEx])
-			copy(dAtA[i:], m[iNdEx])
-			i = encodeVarintGenerated(dAtA, i, uint64(len(m[iNdEx])))
-			i--
-			dAtA[i] = 0xa
-		}
-	}
-	return len(dAtA) - i, nil
-}
 
 func (m *BoundObjectReference) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
@@ -312,28 +278,23 @@ func (m *TokenRequestSpec) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
-	if len(m.AttestationClaims) > 0 {
-		keysForAttestationClaims := make([]string, 0, len(m.AttestationClaims))
-		for k := range m.AttestationClaims {
-			keysForAttestationClaims = append(keysForAttestationClaims, string(k))
+	if len(m.Attestations) > 0 {
+		keysForAttestations := make([]string, 0, len(m.Attestations))
+		for k := range m.Attestations {
+			keysForAttestations = append(keysForAttestations, string(k))
 		}
-		sort.Strings(keysForAttestationClaims)
-		for iNdEx := len(keysForAttestationClaims) - 1; iNdEx >= 0; iNdEx-- {
-			v := m.AttestationClaims[string(keysForAttestationClaims[iNdEx])]
+		sort.Strings(keysForAttestations)
+		for iNdEx := len(keysForAttestations) - 1; iNdEx >= 0; iNdEx-- {
+			v := m.Attestations[string(keysForAttestations[iNdEx])]
 			baseI := i
-			{
-				size, err := (&v).MarshalToSizedBuffer(dAtA[:i])
-				if err != nil {
-					return 0, err
-				}
-				i -= size
-				i = encodeVarintGenerated(dAtA, i, uint64(size))
-			}
+			i -= len(v)
+			copy(dAtA[i:], v)
+			i = encodeVarintGenerated(dAtA, i, uint64(len(v)))
 			i--
 			dAtA[i] = 0x12
-			i -= len(keysForAttestationClaims[iNdEx])
-			copy(dAtA[i:], keysForAttestationClaims[iNdEx])
-			i = encodeVarintGenerated(dAtA, i, uint64(len(keysForAttestationClaims[iNdEx])))
+			i -= len(keysForAttestations[iNdEx])
+			copy(dAtA[i:], keysForAttestations[iNdEx])
+			i = encodeVarintGenerated(dAtA, i, uint64(len(keysForAttestations[iNdEx])))
 			i--
 			dAtA[i] = 0xa
 			i = encodeVarintGenerated(dAtA, i, uint64(baseI-i))
@@ -635,21 +596,6 @@ func encodeVarintGenerated(dAtA []byte, offset int, v uint64) int {
 	dAtA[offset] = uint8(v)
 	return base
 }
-func (m AttestationClaimValue) Size() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if len(m) > 0 {
-		for _, s := range m {
-			l = len(s)
-			n += 1 + l + sovGenerated(uint64(l))
-		}
-	}
-	return n
-}
-
 func (m *BoundObjectReference) Size() (n int) {
 	if m == nil {
 		return 0
@@ -740,12 +686,11 @@ func (m *TokenRequestSpec) Size() (n int) {
 	if m.ExpirationSeconds != nil {
 		n += 1 + sovGenerated(uint64(*m.ExpirationSeconds))
 	}
-	if len(m.AttestationClaims) > 0 {
-		for k, v := range m.AttestationClaims {
+	if len(m.Attestations) > 0 {
+		for k, v := range m.Attestations {
 			_ = k
 			_ = v
-			l = v.Size()
-			mapEntrySize := 1 + len(k) + sovGenerated(uint64(len(k))) + 1 + l + sovGenerated(uint64(l))
+			mapEntrySize := 1 + len(k) + sovGenerated(uint64(len(k))) + 1 + len(v) + sovGenerated(uint64(len(v)))
 			n += mapEntrySize + 1 + sovGenerated(uint64(mapEntrySize))
 		}
 	}
@@ -901,21 +846,21 @@ func (this *TokenRequestSpec) String() string {
 	if this == nil {
 		return "nil"
 	}
-	keysForAttestationClaims := make([]string, 0, len(this.AttestationClaims))
-	for k := range this.AttestationClaims {
-		keysForAttestationClaims = append(keysForAttestationClaims, k)
+	keysForAttestations := make([]string, 0, len(this.Attestations))
+	for k := range this.Attestations {
+		keysForAttestations = append(keysForAttestations, k)
 	}
-	sort.Strings(keysForAttestationClaims)
-	mapStringForAttestationClaims := "map[string]AttestationClaimValue{"
-	for _, k := range keysForAttestationClaims {
-		mapStringForAttestationClaims += fmt.Sprintf("%v: %v,", k, this.AttestationClaims[k])
+	sort.Strings(keysForAttestations)
+	mapStringForAttestations := "map[string]string{"
+	for _, k := range keysForAttestations {
+		mapStringForAttestations += fmt.Sprintf("%v: %v,", k, this.Attestations[k])
 	}
-	mapStringForAttestationClaims += "}"
+	mapStringForAttestations += "}"
 	s := strings.Join([]string{`&TokenRequestSpec{`,
 		`Audiences:` + fmt.Sprintf("%v", this.Audiences) + `,`,
 		`BoundObjectRef:` + strings.Replace(this.BoundObjectRef.String(), "BoundObjectReference", "BoundObjectReference", 1) + `,`,
 		`ExpirationSeconds:` + valueToStringGenerated(this.ExpirationSeconds) + `,`,
-		`AttestationClaims:` + mapStringForAttestationClaims + `,`,
+		`Attestations:` + mapStringForAttestations + `,`,
 		`}`,
 	}, "")
 	return s
@@ -997,88 +942,6 @@ func valueToStringGenerated(v interface{}) string {
 	}
 	pv := reflect.Indirect(rv).Interface()
 	return fmt.Sprintf("*%v", pv)
-}
-func (m *AttestationClaimValue) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowGenerated
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: AttestationClaimValue: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: AttestationClaimValue: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Items", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowGenerated
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthGenerated
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthGenerated
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			*m = append(*m, string(dAtA[iNdEx:postIndex]))
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipGenerated(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthGenerated
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
 }
 func (m *BoundObjectReference) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
@@ -1807,7 +1670,7 @@ func (m *TokenRequestSpec) Unmarshal(dAtA []byte) error {
 			m.ExpirationSeconds = &v
 		case 5:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field AttestationClaims", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Attestations", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -1834,11 +1697,11 @@ func (m *TokenRequestSpec) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.AttestationClaims == nil {
-				m.AttestationClaims = make(map[string]AttestationClaimValue)
+			if m.Attestations == nil {
+				m.Attestations = make(map[string]string)
 			}
 			var mapkey string
-			mapvalue := &AttestationClaimValue{}
+			var mapvalue string
 			for iNdEx < postIndex {
 				entryPreIndex := iNdEx
 				var wire uint64
@@ -1887,7 +1750,7 @@ func (m *TokenRequestSpec) Unmarshal(dAtA []byte) error {
 					mapkey = string(dAtA[iNdEx:postStringIndexmapkey])
 					iNdEx = postStringIndexmapkey
 				} else if fieldNum == 2 {
-					var mapmsglen int
+					var stringLenmapvalue uint64
 					for shift := uint(0); ; shift += 7 {
 						if shift >= 64 {
 							return ErrIntOverflowGenerated
@@ -1897,26 +1760,24 @@ func (m *TokenRequestSpec) Unmarshal(dAtA []byte) error {
 						}
 						b := dAtA[iNdEx]
 						iNdEx++
-						mapmsglen |= int(b&0x7F) << shift
+						stringLenmapvalue |= uint64(b&0x7F) << shift
 						if b < 0x80 {
 							break
 						}
 					}
-					if mapmsglen < 0 {
+					intStringLenmapvalue := int(stringLenmapvalue)
+					if intStringLenmapvalue < 0 {
 						return ErrInvalidLengthGenerated
 					}
-					postmsgIndex := iNdEx + mapmsglen
-					if postmsgIndex < 0 {
+					postStringIndexmapvalue := iNdEx + intStringLenmapvalue
+					if postStringIndexmapvalue < 0 {
 						return ErrInvalidLengthGenerated
 					}
-					if postmsgIndex > l {
+					if postStringIndexmapvalue > l {
 						return io.ErrUnexpectedEOF
 					}
-					mapvalue = &AttestationClaimValue{}
-					if err := mapvalue.Unmarshal(dAtA[iNdEx:postmsgIndex]); err != nil {
-						return err
-					}
-					iNdEx = postmsgIndex
+					mapvalue = string(dAtA[iNdEx:postStringIndexmapvalue])
+					iNdEx = postStringIndexmapvalue
 				} else {
 					iNdEx = entryPreIndex
 					skippy, err := skipGenerated(dAtA[iNdEx:])
@@ -1932,7 +1793,7 @@ func (m *TokenRequestSpec) Unmarshal(dAtA []byte) error {
 					iNdEx += skippy
 				}
 			}
-			m.AttestationClaims[mapkey] = *mapvalue
+			m.Attestations[mapkey] = mapvalue
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
