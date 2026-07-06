@@ -235,7 +235,8 @@ type TokenRequestStatus struct {
 
 // BoundObjectReference is a reference to an object that a token is bound to.
 type BoundObjectReference struct {
-	// kind of the referent. Valid kinds are 'Pod' and 'Secret'.
+	// kind of the referent. Valid kinds are 'Pod', 'Secret', 'Node',
+	// 'ValidatingWebhookConfiguration', and 'MutatingWebhookConfiguration'.
 	// +optional
 	Kind string `json:"kind,omitempty" protobuf:"bytes,1,opt,name=kind"`
 	// apiVersion is API version of the referent.

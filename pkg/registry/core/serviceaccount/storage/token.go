@@ -44,6 +44,7 @@ import (
 	"k8s.io/apiserver/pkg/warning"
 	admissionregistrationv1 "k8s.io/client-go/kubernetes/typed/admissionregistration/v1"
 	"k8s.io/klog/v2"
+	"k8s.io/kubernetes/pkg/apis/authentication"
 	authenticationapi "k8s.io/kubernetes/pkg/apis/authentication"
 	authenticationvalidation "k8s.io/kubernetes/pkg/apis/authentication/validation"
 	api "k8s.io/kubernetes/pkg/apis/core"
@@ -297,15 +298,15 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 	return out, nil
 }
 
-func authorize(newCtx context.Context, r *TokenREST, namespace, name, attestationAPIGroup string) error {
+func authorize(newCtx context.Context, r *TokenREST, namespace, name, admissionReviewAPIGroup string) error {
 	authorized, reason, err := r.authorizer.Authorize(newCtx, authorizer.AttributesRecord{
 		User: &user.DefaultInfo{
 			Name: serviceaccount.MakeUsername(namespace, name),
 		},
 		Verb:     "attest",
-		APIGroup: "webhook-authentication.k8s.io",
-		Resource: "apigroups",
-		Name:     attestationAPIGroup,
+		APIGroup: "authentication.k8s.io",
+		Resource: authentication.AttestationAdmissionReviewAPIGroups,
+		Name:     admissionReviewAPIGroup,
 	})
 
 	if err != nil && !errors.IsUnauthorized(err) {
