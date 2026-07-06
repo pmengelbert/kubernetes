@@ -401,7 +401,7 @@ func TestServiceAccountTokenCreate(t *testing.T) {
 					APIVersion: "v1",
 					Name:       pod.Name,
 				},
-				AttestationClaims: map[string]authenticationv1.AttestationClaimValue{
+				Attestations: map[string]authenticationv1.AttestationClaimValue{
 					"allowedAPIGroup": {"baz"},
 				},
 			},
@@ -1403,8 +1403,8 @@ func TestPeter(t *testing.T) {
 					APIVersion: "admissionregistration/v1",
 					Name:       validating.Name,
 				},
-				AttestationClaims: map[string]authenticationv1.AttestationClaimValue{
-					"allowedAPIGroup": {"authentication.engelbert.dev"},
+				Attestations: map[string]authenticationv1.AttestationClaimValue{
+					authenticationv1.AttestationAdmissionReviewAPIGroups: {"authentication.engelbert.dev"},
 				},
 			},
 		}
@@ -1456,8 +1456,8 @@ func TestPeter(t *testing.T) {
 		checkPayload(t, treq.Status.Token, "null", "kubernetes.io", "pod")
 		checkPayload(t, treq.Status.Token, "null", "kubernetes.io", "secret")
 		checkPayload(t, treq.Status.Token, "null", "kubernetes.io", "node")
-		checkPayload(t, treq.Status.Token, `"test-validating-webhook"`, "kubernetes.io", "validatingWebhookConfiguration", "name")
-		checkPayload(t, treq.Status.Token, `["authentication.engelbert.dev"]`, "kubernetes.io", "attestationClaims", authenticationv1.ClaimAllowedAPIGroup)
+		checkPayload(t, treq.Status.Token, `"test-validating-webhook"`, "kubernetes.io", "validatingwebhookconfiguration", "name")
+		checkPayload(t, treq.Status.Token, `["authentication.engelbert.dev"]`, "kubernetes.io", "attestations", authenticationv1.AttestationAdmissionReviewAPIGroups)
 		checkPayload(t, treq.Status.Token, `"myns"`, "kubernetes.io", "namespace")
 		checkPayload(t, treq.Status.Token, `"test-svcacct"`, "kubernetes.io", "serviceaccount", "name")
 

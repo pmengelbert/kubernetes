@@ -36,10 +36,10 @@ func ValidateTokenRequest(tr *authentication.TokenRequest) field.ErrorList {
 	if tr.Spec.ExpirationSeconds > 1<<32 {
 		allErrs = append(allErrs, field.Invalid(specPath.Child("expirationSeconds"), tr.Spec.ExpirationSeconds, "may not specify a duration larger than 2^32 seconds"))
 	}
-	if tr.Spec.AttestationClaims != nil {
-		for claimKey := range tr.Spec.AttestationClaims {
+	if tr.Spec.Attestations != nil {
+		for claimKey := range tr.Spec.Attestations {
 			switch claimKey {
-			case authentication.ClaimAllowedAPIGroup:
+			case authentication.AttestationAdmissionReviewAPIGroups:
 			default:
 				allErrs = append(allErrs, field.Invalid(specPath.Child("attestationClaims"), claimKey, "may not specify an unknown key"))
 			}
