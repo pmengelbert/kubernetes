@@ -23,6 +23,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apiserver/pkg/authentication/user"
+	"k8s.io/klog/v2"
+	"k8s.io/kubernetes/pkg/apis/authentication"
 )
 
 const (
@@ -51,19 +53,22 @@ const (
 	// ValidatingWebhookConfigurationNameKey is the key used in a user's
 	// "extra" to specify the validating webhook configuration name of
 	// the authenticating request.
-	ValidatingWebhookConfigurationNameKey = "authentication.kubernetes.io/validating-webhook-configuration-name"
+	ValidatingWebhookConfigurationNameKey = "authentication.kubernetes.io/validatingwebhookconfiguration-name"
 	// ValidatingWebhookConfigurationUIDKey is the key used in a user's
 	// "extra" to specify the validating webhook configuration UID of
 	// the authenticating request.
-	ValidatingWebhookConfigurationUIDKey = "authentication.kubernetes.io/validating-webhook-configuration-uid"
+	ValidatingWebhookConfigurationUIDKey = "authentication.kubernetes.io/validatingwebhookconfiguration-uid"
 	// MutatingWebhookConfigurationNameKey is the key used in a user's
 	// "extra" to specify the mutating webhook configuration name of
 	// the authenticating request.
-	MutatingWebhookConfigurationNameKey = "authentication.kubernetes.io/mutating-webhook-configuration-name"
+	MutatingWebhookConfigurationNameKey = "authentication.kubernetes.io/mutatingwebhookconfiguration-name"
 	// MutatingWebhookConfigurationUIDKey is the key used in a user's
 	// "extra" to specify the mutating webhook configuration UID of
 	// the authenticating request.
-	MutatingWebhookConfigurationUIDKey = "authentication.kubernetes.io/mutating-webhook-configuration-uid"
+	MutatingWebhookConfigurationUIDKey = "authentication.kubernetes.io/mutatingwebhookconfiguration-uid"
+	// AttestationAdmissionReviewAPIGroupsKey is the key used in a user's
+	// "extra" to specify the "admissionReviewAPIGroups" claim.
+	AttestationAdmissionReviewAPIGroupsKey = "attestation.authentication.kubernetes.io/" + authentication.AttestationAdmissionReviewAPIGroups
 )
 
 // MakeUsername generates a username from the given namespace and ServiceAccount name.
@@ -145,6 +150,7 @@ type ServiceAccountInfo struct {
 	NodeName, NodeUID                                                     string
 	ValidatingWebhookConfigurationName, ValidatingWebhookConfigurationUID string
 	MutatingWebhookConfigurationName, MutatingWebhookConfigurationUID     string
+	Attestations                                                          map[string][]string
 }
 
 func (sa *ServiceAccountInfo) UserInfo() user.Info {
@@ -183,6 +189,16 @@ func (sa *ServiceAccountInfo) UserInfo() user.Info {
 		}
 		info.Extra[ValidatingWebhookConfigurationNameKey] = []string{sa.ValidatingWebhookConfigurationName}
 		info.Extra[ValidatingWebhookConfigurationUIDKey] = []string{sa.ValidatingWebhookConfigurationUID}
+		for k, v := range sa.Attestations {
+			switch k {
+			case authentication.AttestationAdmissionReviewAPIGroups:
+				info.Extra[AttestationAdmissionReviewAPIGroupsKey] = v
+			default:
+				klog.Warning(fmt.Printf("attestation key %s not recognized", k))
+				continue
+			}
+		}
+
 	}
 
 	return info

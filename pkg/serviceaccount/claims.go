@@ -334,6 +334,7 @@ func (v *validator) Validate(ctx context.Context, _ string, public *jwt.Claims, 
 	if utilfeature.DefaultFeatureGate.Enabled(features.ServiceAccountTokenJTI) {
 		jti = public.ID
 	}
+
 	return &apiserverserviceaccount.ServiceAccountInfo{
 		Namespace:                          private.Kubernetes.Namespace,
 		Name:                               private.Kubernetes.Svcacct.Name,
@@ -342,6 +343,7 @@ func (v *validator) Validate(ctx context.Context, _ string, public *jwt.Claims, 
 		PodUID:                             podUID,
 		NodeName:                           nodeName,
 		NodeUID:                            nodeUID,
+		Attestations:                       private.Kubernetes.Attestations,
 		ValidatingWebhookConfigurationName: validatingName,
 		ValidatingWebhookConfigurationUID:  validatingUID,
 		MutatingWebhookConfigurationName:   mutatingName,

@@ -1464,12 +1464,13 @@ func TestPeter(t *testing.T) {
 		info := doTokenReview(t, cs, treq, false)
 		// we are not testing the credential-id feature, so delete this value from the returned extra info map
 		delete(info.Extra, user.CredentialIDKey)
-		if len(info.Extra) != 2 {
-			t.Fatalf("expected Extra have length of 2 but was length %d: %#v", len(info.Extra), info.Extra)
+		if len(info.Extra) != 3 {
+			t.Fatalf("expected Extra have length of 3 but was length %d: %#v", len(info.Extra), info.Extra)
 		}
 		if expected := map[string]authenticationv1.ExtraValue{
-			"authentication.kubernetes.io/validating-webhook-configuration-name": {validating.ObjectMeta.Name},
-			"authentication.kubernetes.io/validating-webhook-configuration-uid":  {string(validating.ObjectMeta.UID)},
+			apiserverserviceaccount.ValidatingWebhookConfigurationNameKey:  {validating.ObjectMeta.Name},
+			apiserverserviceaccount.ValidatingWebhookConfigurationUIDKey:   {string(validating.ObjectMeta.UID)},
+			apiserverserviceaccount.AttestationAdmissionReviewAPIGroupsKey: {"authentication.engelbert.dev"},
 		}; !reflect.DeepEqual(info.Extra, expected) {
 			t.Fatalf("unexpected Extra:\ngot:\t%#v\nwant:\t%#v", info.Extra, expected)
 		}

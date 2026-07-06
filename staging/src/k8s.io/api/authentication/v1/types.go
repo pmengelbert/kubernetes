@@ -40,11 +40,31 @@ const (
 	// times to have multiple elements in the slice under a single key
 	ImpersonateUserExtraHeaderPrefix = "Impersonate-Extra-"
 
-	// AttestationAdmissionReviewAPIGroups is the map key for the allowedAPIGroups claim. It
-	// represents the APIGroup that a token authorizes its bearer to query
-	// admission webhooks about. The value corresponding to this key must
-	// be a slice of length 1, and the first and only element of this slice
-	// must indicate the api group.
+	// AttestationAdmissionReviewAPIGroups is the map key for the
+	// admissionReviewAPIGroups claim. It represents the APIGroup that a token
+	// authorizes its bearer to query admission webhooks about. The value
+	// corresponding to this key must be a slice of length 1, and the first and
+	// only element of this slice must match the APIGroup of the AdmissionReview
+	// request being made of the webhook. The empty string is invalid as the
+	// first and only element of the value slice. The special value "*" means
+	// "all api groups", and requires matching permissions (described below).
+	//
+	// For this claim to be considered valid, the TokenRequest must meet two
+	// conditions. First, the BoundObjectRef must be one of
+	// ValidatingWebhookConfiguration or MutatingWebhookConfiguration; the
+	// Webhook Configuration in question must have a Rule governing a resource
+	// under the APIGroup named in the value to this key. Second, the requested
+	// audience must match one of the following patterns:
+	//   1. When the webhook is configured with a URL, the audience must match
+	//      the URL field exactly.
+	//   2. When the webhook is configured with a service, the audience must
+	//      match the pattern `https://$name.$namespace.svc:$port[/$path]`, where
+	//      `/$path` is optional.
+	//
+	// The service account for which the TokenRequest is being made must have
+	// "attest" permissions on group "authentication.k8s.io", resource
+	// "admissionReviewAPIGroups, and a resource name matching exactly either
+	// "*", or the api group named in the value to this key.
 	AttestationAdmissionReviewAPIGroups = "admissionReviewAPIGroups"
 )
 
@@ -198,7 +218,7 @@ type TokenRequestSpec struct {
 	// The values for each key have a specific semantic meaning, which is
 	// documented on the key definition. Requesters of tokens may ask
 	// the Kubernetes API Server to attest to certain claims. The API Server
-	// may perform authorization checks depending on the contents of this field.
+	// may perform authorization checks depending on the key of this map.
 	// +optional
 	Attestations map[string]AttestationValue `json:"attestations,omitempty" protobuf:"bytes,5,rep,name=attestationClaims"`
 }
