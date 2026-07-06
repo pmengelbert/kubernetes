@@ -113,7 +113,7 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 	}
 	svcacct := svcacctObj.(*api.ServiceAccount)
 
-	attestationClaims := req.Spec.AttestationClaims
+	attestationClaims := req.Spec.Attestations
 
 	if len(req.UID) > 0 && req.UID != svcacct.UID {
 		if utilfeature.DefaultFeatureGate.Enabled(genericfeatures.TokenRequestServiceAccountUIDValidation) {

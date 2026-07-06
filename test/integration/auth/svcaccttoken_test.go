@@ -401,7 +401,7 @@ func TestServiceAccountTokenCreate(t *testing.T) {
 					APIVersion: "v1",
 					Name:       pod.Name,
 				},
-				AttestationClaims: map[string]authenticationv1.AttestationClaimValue{
+				Attestations: map[string]authenticationv1.AttestationClaimValue{
 					"allowedAPIGroup": {"baz"},
 				},
 			},
@@ -1403,7 +1403,7 @@ func TestPeter(t *testing.T) {
 					APIVersion: "admissionregistration/v1",
 					Name:       validating.Name,
 				},
-				AttestationClaims: map[string]authenticationv1.AttestationClaimValue{
+				Attestations: map[string]authenticationv1.AttestationClaimValue{
 					"allowedAPIGroup": {"authentication.engelbert.dev"},
 				},
 			},

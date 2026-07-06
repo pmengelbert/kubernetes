@@ -139,11 +139,6 @@ type UserInfo struct {
 // +protobuf.options.(gogoproto.goproto_stringer)=false
 type ExtraValue []string
 
-// AttestationClaimValue masks the value so protobuf can generate
-// +protobuf.nullable=true
-// +protobuf.options.(gogoproto.goproto_stringer)=false
-type AttestationClaimValue []string
-
 func (t ExtraValue) String() string {
 	return fmt.Sprintf("%v", []string(t))
 }
@@ -194,13 +189,13 @@ type TokenRequestSpec struct {
 	// +optional
 	BoundObjectRef *BoundObjectReference `json:"boundObjectRef" protobuf:"bytes,3,opt,name=boundObjectRef"`
 
-	// AttestationClaims is map of well-known keys to string-slice values.
+	// Attestations is map of well-known keys to string-slice values.
 	// The values for each key have a specific semantic meaning, which is
 	// documented on the key definition. Requesters of tokens may ask
 	// the Kubernetes API Server to attest to certain claims. The API Server
 	// may perform authorization checks depending on the contents of this field.
 	// +optional
-	AttestationClaims map[string]AttestationClaimValue `json:"attestationClaims,omitempty" protobuf:"bytes,5,rep,name=attestationClaims"`
+	Attestations map[string][]string
 }
 
 // TokenRequestStatus is the result of a token request.
