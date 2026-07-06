@@ -38,7 +38,7 @@ const (
 	// times to have multiple elements in the slice under a single key
 	ImpersonateUserExtraHeaderPrefix = "Impersonate-Extra-"
 
-	// ClaimAllowedAPIGroups is the map key for the allowedAPIGroups claim. It
+	// AttestationAdmissionReviewAPIGroups is the map key for the allowedAPIGroups claim. It
 	// represents the APIGroup that a token authorizes its bearer to query
 	// admission webhooks about. The value corresponding to this key must
 	// be a slice of length 1, and the first and only element of this slice

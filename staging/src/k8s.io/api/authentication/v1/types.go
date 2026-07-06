@@ -40,7 +40,7 @@ const (
 	// times to have multiple elements in the slice under a single key
 	ImpersonateUserExtraHeaderPrefix = "Impersonate-Extra-"
 
-	// ClaimAllowedAPIGroups is the map key for the allowedAPIGroups claim. It
+	// AttestationAdmissionReviewAPIGroups is the map key for the allowedAPIGroups claim. It
 	// represents the APIGroup that a token authorizes its bearer to query
 	// admission webhooks about. The value corresponding to this key must
 	// be a slice of length 1, and the first and only element of this slice
@@ -139,6 +139,9 @@ type UserInfo struct {
 // +protobuf.options.(gogoproto.goproto_stringer)=false
 type ExtraValue []string
 
+// AttestationClaimValue masks the value so protobuf can generate
+type AttestationClaimValue []string
+
 func (t ExtraValue) String() string {
 	return fmt.Sprintf("%v", []string(t))
 }
@@ -195,7 +198,7 @@ type TokenRequestSpec struct {
 	// the Kubernetes API Server to attest to certain claims. The API Server
 	// may perform authorization checks depending on the contents of this field.
 	// +optional
-	Attestations map[string][]string `protobuf:"bytes,5,rep,name=attestations"`
+	Attestations map[string]AttestationClaimValue `json:"attestations,omitempty" protobuf:"bytes,5,rep,name=attestationClaims"`
 }
 
 // TokenRequestStatus is the result of a token request.

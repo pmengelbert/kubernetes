@@ -1404,7 +1404,7 @@ func TestPeter(t *testing.T) {
 					Name:       validating.Name,
 				},
 				Attestations: map[string]authenticationv1.AttestationClaimValue{
-					"allowedAPIGroup": {"authentication.engelbert.dev"},
+					authenticationv1.AttestationAdmissionReviewAPIGroups: {"authentication.engelbert.dev"},
 				},
 			},
 		}
@@ -1456,8 +1456,8 @@ func TestPeter(t *testing.T) {
 		checkPayload(t, treq.Status.Token, "null", "kubernetes.io", "pod")
 		checkPayload(t, treq.Status.Token, "null", "kubernetes.io", "secret")
 		checkPayload(t, treq.Status.Token, "null", "kubernetes.io", "node")
-		checkPayload(t, treq.Status.Token, `"test-validating-webhook"`, "kubernetes.io", "validatingWebhookConfiguration", "name")
-		checkPayload(t, treq.Status.Token, `["authentication.engelbert.dev"]`, "kubernetes.io", "attestationClaims", authenticationv1.AttestationAdmissionReviewAPIGroups)
+		checkPayload(t, treq.Status.Token, `"test-validating-webhook"`, "kubernetes.io", "validatingwebhookconfiguration", "name")
+		checkPayload(t, treq.Status.Token, `["authentication.engelbert.dev"]`, "kubernetes.io", "attestations", authenticationv1.AttestationAdmissionReviewAPIGroups)
 		checkPayload(t, treq.Status.Token, `"myns"`, "kubernetes.io", "namespace")
 		checkPayload(t, treq.Status.Token, `"test-svcacct"`, "kubernetes.io", "serviceaccount", "name")
 

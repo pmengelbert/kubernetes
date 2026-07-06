@@ -31,7 +31,6 @@ import (
 	authenticationtokenjwt "k8s.io/apiserver/pkg/authentication/token/jwt"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/klog/v2"
-	"k8s.io/kubernetes/pkg/apis/authentication"
 	"k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/features"
 )
@@ -72,7 +71,7 @@ type ref struct {
 	UID  string `json:"uid,omitempty"`
 }
 
-func Claims(sa core.ServiceAccount, pod *core.Pod, secret *core.Secret, node *core.Node, validating *admissionregistrationv1.ValidatingWebhookConfiguration, mutating *admissionregistrationv1.MutatingWebhookConfiguration, expirationSeconds, warnafter int64, audience []string, attestationClaims map[string]authentication.AttestationClaimValue) (*jwt.Claims, interface{}, error) {
+func Claims(sa core.ServiceAccount, pod *core.Pod, secret *core.Secret, node *core.Node, validating *admissionregistrationv1.ValidatingWebhookConfiguration, mutating *admissionregistrationv1.MutatingWebhookConfiguration, expirationSeconds, warnafter int64, audience []string, attestations map[string][]string) (*jwt.Claims, interface{}, error) {
 	now := now()
 	sc := &jwt.Claims{
 		Subject:   apiserverserviceaccount.MakeUsername(sa.Namespace, sa.Name),
@@ -91,7 +90,7 @@ func Claims(sa core.ServiceAccount, pod *core.Pod, secret *core.Secret, node *co
 				Name: sa.Name,
 				UID:  string(sa.UID),
 			},
-			Attestations: attestationClaims,
+			Attestations: attestations,
 		},
 	}
 
