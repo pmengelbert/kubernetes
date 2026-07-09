@@ -159,13 +159,17 @@ type UserInfo struct {
 // +protobuf.options.(gogoproto.goproto_stringer)=false
 type ExtraValue []string
 
+func (t ExtraValue) String() string {
+	return fmt.Sprintf("%v", []string(t))
+}
+
 // AttestationValue masks the value so protobuf can generate
 // +protobuf.nullable=true
 // +protobuf.options.(gogoproto.goproto_stringer)=false
 type AttestationValue []string
 
-func (t ExtraValue) String() string {
-	return fmt.Sprintf("%v", []string(t))
+func (a AttestationValue) String() string {
+	return fmt.Sprintf("%v", []string(a))
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

@@ -298,7 +298,16 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 	return out, nil
 }
 
-func authorize(newCtx context.Context, r *TokenREST, namespace, name, admissionReviewAPIGroup string) error {
+func asStringSliceMap(m map[string]authentication.AttestationValue) map[string][]string {
+	out := make(map[string][]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+
+	return out
+}
+
+func authorize(newCtx context.Context, r *TokenREST, namespace, name, admissionReviewAPIGroups string) error {
 	authorized, reason, err := r.authorizer.Authorize(newCtx, authorizer.AttributesRecord{
 		User: &user.DefaultInfo{
 			Name: serviceaccount.MakeUsername(namespace, name),
@@ -306,7 +315,7 @@ func authorize(newCtx context.Context, r *TokenREST, namespace, name, admissionR
 		Verb:     "attest",
 		APIGroup: "authentication.k8s.io",
 		Resource: authentication.AttestationAdmissionReviewAPIGroups,
-		Name:     admissionReviewAPIGroup,
+		Name:     admissionReviewAPIGroups,
 	})
 
 	if err != nil && !errors.IsUnauthorized(err) {

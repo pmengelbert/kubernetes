@@ -256,7 +256,7 @@ func autoConvert_v1_TokenRequestSpec_To_authentication_TokenRequestSpec(in *auth
 		return err
 	}
 	out.BoundObjectRef = (*authentication.BoundObjectReference)(unsafe.Pointer(in.BoundObjectRef))
-	out.Attestations = *(*map[string][]string)(unsafe.Pointer(&in.Attestations))
+	out.Attestations = *(*map[string]authentication.AttestationValue)(unsafe.Pointer(&in.Attestations))
 	return nil
 }
 

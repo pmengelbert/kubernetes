@@ -39,7 +39,8 @@ message AttestationValue {
 
 // BoundObjectReference is a reference to an object that a token is bound to.
 message BoundObjectReference {
-  // kind of the referent. Valid kinds are 'Pod' and 'Secret'.
+  // kind of the referent. Valid kinds are 'Pod', 'Secret', 'Node',
+  // 'ValidatingWebhookConfiguration', and 'MutatingWebhookConfiguration'.
   // +optional
   optional string kind = 1;
 
@@ -133,7 +134,7 @@ message TokenRequestSpec {
   // The values for each key have a specific semantic meaning, which is
   // documented on the key definition. Requesters of tokens may ask
   // the Kubernetes API Server to attest to certain claims. The API Server
-  // may perform authorization checks depending on the contents of this field.
+  // may perform authorization checks depending on the key of this map.
   // +optional
   map<string, AttestationValue> attestationClaims = 5;
 }

@@ -133,6 +133,9 @@ type UserInfo struct {
 // ExtraValue masks the value so protobuf can generate
 type ExtraValue []string
 
+// AttestationValue masks the value so protobuf can generate
+type AttestationValue []string
+
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // TokenRequest requests a token for a given service account.
@@ -173,7 +176,7 @@ type TokenRequestSpec struct {
 	// documented on the key definition. Requesters of tokens may ask
 	// the Kubernetes API Server to attest to certain claims. The API Server
 	// may perform authorization checks depending on the contents of this field.
-	Attestations map[string][]string
+	Attestations map[string]AttestationValue
 }
 
 // TokenRequestStatus is the result of a token request.

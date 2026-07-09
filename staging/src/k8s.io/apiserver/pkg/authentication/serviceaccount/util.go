@@ -150,7 +150,7 @@ type ServiceAccountInfo struct {
 	NodeName, NodeUID                                                     string
 	ValidatingWebhookConfigurationName, ValidatingWebhookConfigurationUID string
 	MutatingWebhookConfigurationName, MutatingWebhookConfigurationUID     string
-	Attestations                                                          map[string][]string
+	Attestations                                                          map[string]authentication.AttestationValue
 }
 
 func (sa *ServiceAccountInfo) UserInfo() user.Info {
