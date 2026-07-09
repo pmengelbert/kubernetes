@@ -1252,9 +1252,9 @@ func createTokenRoleAndBinding(t *testing.T, client clientset.Interface, saName,
 		ObjectMeta: metav1.ObjectMeta{Name: roleName},
 		Rules: []rbacv1.PolicyRule{
 			{
-				APIGroups:     []string{"webhookauth.k8s.io"},
-				Resources:     resources,
 				Verbs:         verbs,
+				APIGroups:     []string{"authentication.k8s.io"},
+				Resources:     resources,
 				ResourceNames: resourceNames,
 			},
 		},
@@ -1360,17 +1360,6 @@ func TestPeter(t *testing.T) {
 				Namespace: ns.Name,
 			},
 		}
-		pod = &v1.Pod{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-pod",
-				Namespace: sa.Namespace,
-			},
-			Spec: v1.PodSpec{
-				ServiceAccountName: sa.Name,
-				Containers:         []v1.Container{{Name: "test-container", Image: "nginx"}},
-			},
-		}
-
 		validating = &admissionregistrationv1.ValidatingWebhookConfiguration{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "test-validating-webhook",
@@ -1392,7 +1381,7 @@ func TestPeter(t *testing.T) {
 		noUID    = types.UID("")
 	)
 
-	createTokenRoleAndBinding(t, cs, sa.Name, "myns", "rolename2", []string{"apigroups"}, []string{"attest"}, []string{"authentication.engelbert.dev"})
+	createTokenRoleAndBinding(t, cs, sa.Name, "myns", "rolename2", []string{authenticationv1.AttestationAdmissionReviewAPIGroups}, []string{"attest"}, []string{"authentication.engelbert.dev"})
 
 	t.Run("peter-test", func(t *testing.T) {
 		treq := &authenticationv1.TokenRequest{
@@ -1429,7 +1418,7 @@ func TestPeter(t *testing.T) {
 		warningHandler.assertEqual(t, nil)
 
 		// right uid
-		treq.Spec.BoundObjectRef.UID = pod.UID
+		treq.Spec.BoundObjectRef.UID = validating.UID
 		warningHandler.clear()
 		if _, err := cs.CoreV1().ServiceAccounts(sa.Namespace).CreateToken(tCtx, sa.Name, treq, metav1.CreateOptions{}); err != nil {
 			t.Fatalf("err: %v", err)

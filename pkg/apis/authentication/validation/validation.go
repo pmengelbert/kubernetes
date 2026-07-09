@@ -35,15 +35,36 @@ func ValidateTokenRequest(tr *authentication.TokenRequest) field.ErrorList {
 	}
 	if tr.Spec.ExpirationSeconds > 1<<32 {
 		allErrs = append(allErrs, field.Invalid(specPath.Child("expirationSeconds"), tr.Spec.ExpirationSeconds, "may not specify a duration larger than 2^32 seconds"))
+
 	}
-	if tr.Spec.Attestations != nil {
-		for claimKey := range tr.Spec.Attestations {
-			switch claimKey {
-			case authentication.AttestationAdmissionReviewAPIGroups:
-			default:
-				allErrs = append(allErrs, field.Invalid(specPath.Child("attestationClaims"), claimKey, "may not specify an unknown key"))
+	allErrs = append(allErrs, validateAttestations(tr.Spec.Attestations, specPath)...)
+	return allErrs
+}
+
+func validateAttestations(attestations map[string]authentication.AttestationValue, specPath *field.Path) field.ErrorList {
+	errs := field.ErrorList{}
+
+	for key, values := range attestations {
+		if len(values) == 0 {
+			errs = append(errs, field.Invalid(specPath.Child("attestations"), key, "may not specify empty value"))
+			continue
+		}
+
+		switch key {
+		case authentication.AttestationAdmissionReviewAPIGroups:
+			if len(values) != 1 {
+				errs = append(errs, field.Invalid(specPath.Child("attestations").Child(authentication.AttestationAdmissionReviewAPIGroups), key, "must specify a single value"))
+				continue
 			}
+
+			if values[0] == "" {
+				errs = append(errs, field.Invalid(specPath.Child("attestations").Child(authentication.AttestationAdmissionReviewAPIGroups), key, "may not be an empty string"))
+				continue
+			}
+		default:
+			errs = append(errs, field.Invalid(specPath.Child("attestations"), key, "may not specify an unknown key"))
 		}
 	}
-	return allErrs
+
+	return errs
 }

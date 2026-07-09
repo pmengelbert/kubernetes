@@ -18,7 +18,6 @@ package storage
 
 import (
 	"context"
-	goerrors "errors"
 	"fmt"
 	"time"
 
@@ -37,6 +36,7 @@ import (
 	authenticationtokenjwt "k8s.io/apiserver/pkg/authentication/token/jwt"
 	"k8s.io/apiserver/pkg/authentication/user"
 	"k8s.io/apiserver/pkg/authorization/authorizer"
+	"k8s.io/apiserver/pkg/endpoints/handlers/responsewriters"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	genericfeatures "k8s.io/apiserver/pkg/features"
 	"k8s.io/apiserver/pkg/registry/rest"
@@ -114,7 +114,7 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 	}
 	svcacct := svcacctObj.(*api.ServiceAccount)
 
-	attestationClaims := req.Spec.Attestations
+	attestations := req.Spec.Attestations
 
 	if len(req.UID) > 0 && req.UID != svcacct.UID {
 		if utilfeature.DefaultFeatureGate.Enabled(genericfeatures.TokenRequestServiceAccountUIDValidation) {
@@ -224,34 +224,35 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 			}
 			secret = secretObj.(*api.Secret)
 			uid = secret.UID
-		case gvk.Group == "admissionregistration" && gvk.Kind == "ValidatingWebhookConfiguration":
-			// shared logic in function call
-			newCtx := newContext(ctx, "validatingWebhookConfigurations", ref.Name, "", gvk)
-			attestationAPIGroupSlice, ok := attestationClaims[authenticationapi.AttestationAdmissionReviewAPIGroups]
+		case gvk.Group == "admissionregistration" && (gvk.Kind == "ValidatingWebhookConfiguration" || gvk.Kind == "MutatingWebhookConfiguration"):
+			newCtx := newContext(ctx, firstCharToLower(gvk.Kind), ref.Name, "", gvk)
+			admissionReviewAPIGroups, ok := attestations[authenticationapi.AttestationAdmissionReviewAPIGroups]
 			if !ok {
-				return nil, errors.NewBadRequest("allowedAPIGroup must be a requested attestationClaim")
-			}
-			if len(attestationAPIGroupSlice) != 1 {
-				return nil, errors.NewBadRequest("allowedAPIGroup claim value must be a string slice of length 1")
+				return nil, errors.NewBadRequest(fmt.Sprintf("allowedAPIGroups attestation is required when bound object ref is of kind %s", gvk.Kind))
 			}
 
-			if err := authorize(newCtx, r, req.Namespace, req.Name, attestationAPIGroupSlice[0]); err != nil {
+			// indexing is safe to do since validation catches empty attestation values
+			if err := r.authorizeAdmissionWebhookAuthnTokenRequest(newCtx, getSvcAccountUserInfo(req, ref), admissionReviewAPIGroups[0]); err != nil {
 				return nil, err
 			}
 
-			valObj, err := r.validatingWebhookConfigurations.Get(newCtx, ref.Name, metav1.GetOptions{})
-			if err != nil {
-				return nil, err
-			}
+			switch gvk.Kind {
+			case "ValidatingWebhookConfiguration":
+				valObj, err := r.validatingWebhookConfigurations.Get(ctx, ref.Name, metav1.GetOptions{})
+				if err != nil {
+					return nil, err
+				}
 
-			validating = valObj
-		case gvk.Group == "admissionregistration" && gvk.Kind == "MutatingWebhookConfiguration":
-			newCtx := newContext(ctx, "mutatingWebhookConfigurations", ref.Name, "", gvk)
-			mutObj, err := r.mutatingWebhookConfigurations.Get(newCtx, ref.Name, metav1.GetOptions{})
-			if err != nil {
-				return nil, err
+				validating = valObj
+				uid = validating.UID
+			case "MutatingWebhookConfiguration":
+				mutObj, err := r.mutatingWebhookConfigurations.Get(newCtx, ref.Name, metav1.GetOptions{})
+				if err != nil {
+					return nil, err
+				}
+				mutating = mutObj
+				uid = mutating.UID
 			}
-			mutating = mutObj
 		default:
 			return nil, errors.NewBadRequest(fmt.Sprintf("cannot bind token to object of type %s", gvk.String()))
 		}
@@ -277,7 +278,7 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 		exp = r.maxExtendedExpirationSeconds
 	}
 
-	sc, pc, err := token.Claims(*svcacct, pod, secret, node, validating, mutating, exp, warnAfter, req.Spec.Audiences, attestationClaims)
+	sc, pc, err := token.Claims(*svcacct, pod, secret, node, validating, mutating, exp, warnAfter, req.Spec.Audiences, attestations)
 	if err != nil {
 		return nil, err
 	}
@@ -298,35 +299,51 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 	return out, nil
 }
 
-func asStringSliceMap(m map[string]authentication.AttestationValue) map[string][]string {
-	out := make(map[string][]string, len(m))
-	for k, v := range m {
-		out[k] = v
-	}
-
-	return out
+func getSvcAccountUserInfo(req *authenticationapi.TokenRequest, ref *authenticationapi.BoundObjectReference) user.Info {
+	info := (&serviceaccount.ServiceAccountInfo{
+		Name:                               req.Name,
+		Namespace:                          req.Namespace,
+		UID:                                string(req.UID),
+		ValidatingWebhookConfigurationName: ref.Name,
+		ValidatingWebhookConfigurationUID:  string(ref.UID),
+		Attestations:                       req.Spec.Attestations,
+	}).UserInfo()
+	return info
 }
 
-func authorize(newCtx context.Context, r *TokenREST, namespace, name, admissionReviewAPIGroups string) error {
-	authorized, reason, err := r.authorizer.Authorize(newCtx, authorizer.AttributesRecord{
-		User: &user.DefaultInfo{
-			Name: serviceaccount.MakeUsername(namespace, name),
-		},
-		Verb:     "attest",
-		APIGroup: "authentication.k8s.io",
-		Resource: authentication.AttestationAdmissionReviewAPIGroups,
-		Name:     admissionReviewAPIGroups,
-	})
+func firstCharToLower(kind string) string {
+	return string([]byte(kind)[0]+0x20) + string([]byte(kind)[1:])
+}
 
-	if err != nil && !errors.IsUnauthorized(err) {
-		return errors.NewBadRequest(err.Error())
+func (r *TokenREST) authorizeAdmissionWebhookAuthnTokenRequest(ctx context.Context, userInfo user.Info, admissionReviewAPIGroup string) error {
+	attributes := authorizer.AttributesRecord{
+		//TODO pass in a ServiceAccountInfo and call UserInfo() on it
+		User:            userInfo,
+		Verb:            "attest",
+		APIVersion:      "*",
+		APIGroup:        "authentication.k8s.io",
+		Resource:        authentication.AttestationAdmissionReviewAPIGroups,
+		ResourceRequest: true,
+		Name:            admissionReviewAPIGroup,
 	}
 
-	if authorized != authorizer.DecisionAllow && authorized != authorizer.DecisionNoOpinion {
-		return errors.NewUnauthorized(goerrors.Join(fmt.Errorf("%s", reason), err).Error())
+	authorized, reason, err := r.authorizer.Authorize(ctx, attributes)
+	if authorized == authorizer.DecisionAllow {
+		return nil
+	}
+	if errors.IsForbidden(err) {
+		return err
 	}
 
-	return nil
+	msg := reason
+	if err != nil {
+		msg = err.Error()
+		if len(reason) > 0 {
+			msg = fmt.Sprintf("%v: %s", err, reason)
+		}
+	}
+
+	return responsewriters.ForbiddenStatusError(attributes, msg)
 }
 
 func (r *TokenREST) GroupVersionKind(schema.GroupVersion) schema.GroupVersionKind {
