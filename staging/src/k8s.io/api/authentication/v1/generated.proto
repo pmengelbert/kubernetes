@@ -136,7 +136,7 @@ message TokenRequestSpec {
   // the Kubernetes API Server to attest to certain claims. The API Server
   // may perform authorization checks depending on the key of this map.
   // +optional
-  map<string, AttestationValue> attestationClaims = 5;
+  map<string, AttestationValue> attestations = 5;
 }
 
 // TokenRequestStatus is the result of a token request.
