@@ -300,15 +300,23 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 }
 
 func getSvcAccountUserInfo(req *authenticationapi.TokenRequest, ref *authenticationapi.BoundObjectReference) user.Info {
-	info := (&serviceaccount.ServiceAccountInfo{
-		Name:                               req.Name,
-		Namespace:                          req.Namespace,
-		UID:                                string(req.UID),
-		ValidatingWebhookConfigurationName: ref.Name,
-		ValidatingWebhookConfigurationUID:  string(ref.UID),
-		Attestations:                       req.Spec.Attestations,
-	}).UserInfo()
-	return info
+	info := serviceaccount.ServiceAccountInfo{
+		Name:         req.Name,
+		Namespace:    req.Namespace,
+		UID:          string(req.UID),
+		Attestations: req.Spec.Attestations,
+	}
+
+	switch ref.Kind {
+	case "ValidatingWebhookConfiguration":
+		info.ValidatingWebhookConfigurationName = ref.Name
+		info.ValidatingWebhookConfigurationUID = string(ref.UID)
+	case "MutatingWebhookConfiguration":
+		info.MutatingWebhookConfigurationName = ref.Name
+		info.MutatingWebhookConfigurationUID = string(ref.UID)
+	}
+
+	return info.UserInfo()
 }
 
 func firstCharToLower(kind string) string {
