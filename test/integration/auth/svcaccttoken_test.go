@@ -1246,37 +1246,24 @@ func TestServiceAccountTokenCreate(t *testing.T) {
 	})
 }
 
-// createRoleAndBinding is a quick helper to assign namespaced RBAC rules
-func createTokenRoleAndBinding(t *testing.T, client clientset.Interface, saName, ns, roleName string, resources, verbs, resourceNames []string) {
+// createAttestRoleAndBinding grants a service account the "attest" verb on the
+// given resources/resourceNames in the authentication.k8s.io API group, plus
+// the ability to create serviceaccounts/token in the given namespace.
+func createAttestRoleAndBinding(t *testing.T, client clientset.Interface, saName, ns, roleName string, resources, resourceNames []string) {
+	t.Helper()
+
 	cr := &rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{Name: roleName},
 		Rules: []rbacv1.PolicyRule{
 			{
-				Verbs:         verbs,
+				Verbs:         []string{"attest"},
 				APIGroups:     []string{"authentication.k8s.io"},
 				Resources:     resources,
 				ResourceNames: resourceNames,
 			},
 		},
 	}
-
 	_, err := client.RbacV1().ClusterRoles().Create(context.TODO(), cr, metav1.CreateOptions{})
-	if err != nil && !apierrors.IsAlreadyExists(err) {
-		t.Fatal(err)
-	}
-
-	r := &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{Name: roleName + "2", Namespace: ns},
-		Rules: []rbacv1.PolicyRule{
-			{
-				APIGroups: []string{""},
-				Resources: []string{"serviceaccounts/token"},
-				Verbs:     []string{"create"},
-			},
-		},
-	}
-
-	_, err = client.RbacV1().Roles(ns).Create(context.TODO(), r, metav1.CreateOptions{})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
 		t.Fatal(err)
 	}
@@ -1286,16 +1273,30 @@ func createTokenRoleAndBinding(t *testing.T, client clientset.Interface, saName,
 		Subjects:   []rbacv1.Subject{{Kind: "ServiceAccount", Name: saName, Namespace: ns}},
 		RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: roleName},
 	}
-
 	_, err = client.RbacV1().ClusterRoleBindings().Create(context.TODO(), crb, metav1.CreateOptions{})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
 		t.Fatal(err)
 	}
 
+	r := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: roleName + "-token", Namespace: ns},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{""},
+				Resources: []string{"serviceaccounts/token"},
+				Verbs:     []string{"create"},
+			},
+		},
+	}
+	_, err = client.RbacV1().Roles(ns).Create(context.TODO(), r, metav1.CreateOptions{})
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		t.Fatal(err)
+	}
+
 	rb := &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{Name: roleName + "2-binding", Namespace: ns},
+		ObjectMeta: metav1.ObjectMeta{Name: roleName + "-token-binding", Namespace: ns},
 		Subjects:   []rbacv1.Subject{{Kind: "ServiceAccount", Name: saName, Namespace: ns}},
-		RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: roleName + "2"},
+		RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: roleName + "-token"},
 	}
 	_, err = client.RbacV1().RoleBindings(ns).Create(context.TODO(), rb, metav1.CreateOptions{})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
@@ -1303,7 +1304,38 @@ func createTokenRoleAndBinding(t *testing.T, client clientset.Interface, saName,
 	}
 }
 
-func TestPeter(t *testing.T) {
+// createTokenCreateOnlyRoleAndBinding grants a service account only the ability
+// to create serviceaccounts/token, with no attest permission.
+func createTokenCreateOnlyRoleAndBinding(t *testing.T, client clientset.Interface, saName, ns, roleName string) {
+	t.Helper()
+
+	r := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: roleName, Namespace: ns},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{""},
+				Resources: []string{"serviceaccounts/token"},
+				Verbs:     []string{"create"},
+			},
+		},
+	}
+	_, err := client.RbacV1().Roles(ns).Create(context.TODO(), r, metav1.CreateOptions{})
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		t.Fatal(err)
+	}
+
+	rb := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: roleName + "-binding", Namespace: ns},
+		Subjects:   []rbacv1.Subject{{Kind: "ServiceAccount", Name: saName, Namespace: ns}},
+		RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: roleName},
+	}
+	_, err = client.RbacV1().RoleBindings(ns).Create(context.TODO(), rb, metav1.CreateOptions{})
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		t.Fatal(err)
+	}
+}
+
+func TestServiceAccountTokenAttestations(t *testing.T) {
 	const iss = "https://foo.bar.example.com"
 	aud := authenticator.Audiences{"api"}
 
@@ -1317,22 +1349,17 @@ func TestPeter(t *testing.T) {
 
 	kubeClient, kubeConfig, tearDownFn := framework.StartTestServer(tCtx, t, framework.TestServerSetup{
 		ModifyServerRunOptions: func(opts *options.ServerRunOptions) {
-			// Disable ServiceAccount admission plugin as we don't have serviceaccount controller running.
 			opts.Admission.GenericAdmission.DisablePlugins = []string{"ServiceAccount"}
 			opts.Authorization.Modes = []string{"RBAC"}
-			// Disable token cache so we can check reaction to service account deletion quickly
 			opts.Authentication.TokenSuccessCacheTTL = 0
 			opts.Authentication.TokenFailureCacheTTL = 0
-			// Pin to fixed URLs for easier testing
 			opts.Authentication.ServiceAccounts.JWKSURI = "https:///openid/v1/jwks"
 			opts.Authentication.ServiceAccounts.Issuers = []string{iss}
 			opts.Authentication.APIAudiences = aud
 		},
 		ModifyServerConfig: func(config *controlplane.Config) {
-			// extract token generator
 			config.ControlPlane.Generic.RequestTimeout = time.Second * 1000
 			config.ControlPlane.Generic.LoopbackClientConfig.Timeout = time.Second * 1000
-
 			config.ControlPlane.Extra.ServiceAccountMaxExpiration = maxExpirationDuration
 			config.ControlPlane.Extra.ExtendExpiration = true
 		},
@@ -1342,128 +1369,467 @@ func TestPeter(t *testing.T) {
 	ns := framework.CreateNamespaceOrDie(kubeClient, "myns", t)
 	defer framework.DeleteNamespaceOrDie(kubeClient, ns, t)
 
-	warningHandler := &recordingWarningHandler{}
-
-	configWithWarningHandler := rest.CopyConfig(kubeConfig)
-	configWithWarningHandler.WarningHandler = warningHandler
-	cs, err := clientset.NewForConfig(configWithWarningHandler)
+	cs, err := clientset.NewForConfig(kubeConfig)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
 
-	kubeConfig.NegotiatedSerializer = scheme.Codecs.WithoutConversion()
+	// Create service accounts
+	sa, delSA := createDeleteSvcAcct(t, cs, &v1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-svcacct", Namespace: ns.Name},
+	})
+	defer delSA()
 
-	var (
-		sa = &v1.ServiceAccount{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-svcacct",
-				Namespace: ns.Name,
-			},
+	saNoRBAC, delSANoRBAC := createDeleteSvcAcct(t, cs, &v1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-svcacct-no-rbac", Namespace: ns.Name},
+	})
+	defer delSANoRBAC()
+
+	// Create webhook configurations
+	validating, delValidating := createDeleteValidating(t, cs, &admissionregistrationv1.ValidatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-validating-webhook"},
+		Webhooks: []admissionregistrationv1.ValidatingWebhook{{
+			Name:                    "validate.webhook.test",
+			ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: ptr.To("https://validate.test")},
+			SideEffects:             ptr.To(admissionregistrationv1.SideEffectClassNone),
+			AdmissionReviewVersions: []string{"v1"},
+		}},
+	})
+	defer delValidating()
+
+	mutating, delMutating := createDeleteMutating(t, cs, &admissionregistrationv1.MutatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-mutating-webhook"},
+		Webhooks: []admissionregistrationv1.MutatingWebhook{{
+			Name:                    "mutate.webhook.test",
+			ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: ptr.To("https://mutate.test")},
+			SideEffects:             ptr.To(admissionregistrationv1.SideEffectClassNone),
+			AdmissionReviewVersions: []string{"v1"},
+		}},
+	})
+	defer delMutating()
+
+	// Create a pod and secret for the "attestations with non-webhook bound object" tests
+	pod, delPod := createDeletePod(t, cs, &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: ns.Name},
+		Spec: v1.PodSpec{
+			ServiceAccountName: sa.Name,
+			Containers:         []v1.Container{{Name: "c", Image: "img"}},
+		},
+	})
+	defer delPod()
+
+	secret, delSecret := createDeleteSecret(t, cs, &v1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-secret", Namespace: ns.Name},
+	})
+	defer delSecret()
+
+	// RBAC: test-svcacct can attest for "apps" only
+	createAttestRoleAndBinding(t, cs, sa.Name, ns.Name, "attest-apps",
+		[]string{authenticationv1.AttestationAdmissionReviewAPIGroups}, []string{"apps"})
+
+	// RBAC: test-svcacct-no-rbac can create tokens but has no attest permission
+	createTokenCreateOnlyRoleAndBinding(t, cs, saNoRBAC.Name, ns.Name, "no-rbac-token-only")
+
+	// Helpers to build token requests concisely
+	appsAttestation := map[string]authenticationv1.AttestationValue{
+		authenticationv1.AttestationAdmissionReviewAPIGroups: {"apps"},
+	}
+
+	validatingRef := func(name string, uid types.UID) *authenticationv1.BoundObjectReference {
+		return &authenticationv1.BoundObjectReference{
+			Kind:       "ValidatingWebhookConfiguration",
+			APIVersion: "admissionregistration.k8s.io/v1",
+			Name:       name,
+			UID:        uid,
 		}
-		validating = &admissionregistrationv1.ValidatingWebhookConfiguration{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "test-validating-webhook",
+	}
+
+	mutatingRef := func(name string, uid types.UID) *authenticationv1.BoundObjectReference {
+		return &authenticationv1.BoundObjectReference{
+			Kind:       "MutatingWebhookConfiguration",
+			APIVersion: "admissionregistration.k8s.io/v1",
+			Name:       name,
+			UID:        uid,
+		}
+	}
+
+	// --- Error cases (table-driven) ---
+
+	errorCases := []struct {
+		name        string
+		saName      string
+		spec        authenticationv1.TokenRequestSpec
+		errContains string
+	}{
+		// Nonexistent objects
+		{
+			name:   "nonexistent service account",
+			saName: "test-svcacct-nonexistent",
+			spec: authenticationv1.TokenRequestSpec{
+				Audiences:      []string{"api"},
+				BoundObjectRef: validatingRef(validating.Name, ""),
+				Attestations:   appsAttestation,
 			},
-			Webhooks: []admissionregistrationv1.ValidatingWebhook{
-				{
-					Name: "asdf.foobar.test",
-					ClientConfig: admissionregistrationv1.WebhookClientConfig{
-						URL: new("https://asdf.foobar.test"),
-					},
-					Rules:                   []admissionregistrationv1.RuleWithOperations{},
-					SideEffects:             new(admissionregistrationv1.SideEffectClass(admissionregistrationv1.SideEffectClassNone)),
-					AdmissionReviewVersions: []string{"v1"},
+			errContains: `"test-svcacct-nonexistent" not found`,
+		},
+		{
+			name:   "nonexistent ValidatingWebhookConfiguration",
+			saName: sa.Name,
+			spec: authenticationv1.TokenRequestSpec{
+				Audiences:      []string{"api"},
+				BoundObjectRef: validatingRef("test-validating-webhook-nonexistent", ""),
+				Attestations:   appsAttestation,
+			},
+			errContains: `"test-validating-webhook-nonexistent" not found`,
+		},
+		{
+			name:   "nonexistent MutatingWebhookConfiguration",
+			saName: sa.Name,
+			spec: authenticationv1.TokenRequestSpec{
+				Audiences:      []string{"api"},
+				BoundObjectRef: mutatingRef("test-mutating-webhook-nonexistent", ""),
+				Attestations:   appsAttestation,
+			},
+			errContains: `"test-mutating-webhook-nonexistent" not found`,
+		},
+
+		// UID mismatch
+		{
+			name:   "wrong UID on ValidatingWebhookConfiguration",
+			saName: sa.Name,
+			spec: authenticationv1.TokenRequestSpec{
+				Audiences:      []string{"api"},
+				BoundObjectRef: validatingRef(validating.Name, "wrong"),
+				Attestations:   appsAttestation,
+			},
+			errContains: `the UID in the bound object reference (wrong) does not match the UID in record`,
+		},
+		{
+			name:   "wrong UID on MutatingWebhookConfiguration",
+			saName: sa.Name,
+			spec: authenticationv1.TokenRequestSpec{
+				Audiences:      []string{"api"},
+				BoundObjectRef: mutatingRef(mutating.Name, "wrong"),
+				Attestations:   appsAttestation,
+			},
+			errContains: `the UID in the bound object reference (wrong) does not match the UID in record`,
+		},
+
+		// Missing required attestation
+		{
+			name:   "missing attestation for ValidatingWebhookConfiguration",
+			saName: sa.Name,
+			spec: authenticationv1.TokenRequestSpec{
+				Audiences:      []string{"api"},
+				BoundObjectRef: validatingRef(validating.Name, ""),
+			},
+			errContains: `allowedAPIGroups attestation is required when bound object ref is of kind ValidatingWebhookConfiguration`,
+		},
+		{
+			name:   "missing attestation for MutatingWebhookConfiguration",
+			saName: sa.Name,
+			spec: authenticationv1.TokenRequestSpec{
+				Audiences:      []string{"api"},
+				BoundObjectRef: mutatingRef(mutating.Name, ""),
+			},
+			errContains: `allowedAPIGroups attestation is required when bound object ref is of kind MutatingWebhookConfiguration`,
+		},
+
+		// Authorization failures
+		{
+			name:   "forbidden - authorized for apps but requesting networking.k8s.io",
+			saName: sa.Name,
+			spec: authenticationv1.TokenRequestSpec{
+				Audiences:      []string{"api"},
+				BoundObjectRef: validatingRef(validating.Name, ""),
+				Attestations: map[string]authenticationv1.AttestationValue{
+					authenticationv1.AttestationAdmissionReviewAPIGroups: {"networking.k8s.io"},
 				},
 			},
+			errContains: `User "system:serviceaccount:myns:test-svcacct" cannot attest resource "admissionReviewAPIGroups" in API group "authentication.k8s.io" at the cluster scope`,
+		},
+		{
+			name:   "forbidden - no attest permission at all",
+			saName: saNoRBAC.Name,
+			spec: authenticationv1.TokenRequestSpec{
+				Audiences:      []string{"api"},
+				BoundObjectRef: validatingRef(validating.Name, ""),
+				Attestations:   appsAttestation,
+			},
+			errContains: `User "system:serviceaccount:myns:test-svcacct-no-rbac" cannot attest resource "admissionReviewAPIGroups" in API group "authentication.k8s.io" at the cluster scope`,
+		},
+
+		// Validation errors
+		{
+			name:   "validation - empty attestation value",
+			saName: sa.Name,
+			spec: authenticationv1.TokenRequestSpec{
+				Audiences:      []string{"api"},
+				BoundObjectRef: validatingRef(validating.Name, ""),
+				Attestations: map[string]authenticationv1.AttestationValue{
+					authenticationv1.AttestationAdmissionReviewAPIGroups: {},
+				},
+			},
+			errContains: `may not specify empty value`,
+		},
+		{
+			name:   "validation - unknown attestation key",
+			saName: sa.Name,
+			spec: authenticationv1.TokenRequestSpec{
+				Audiences:      []string{"api"},
+				BoundObjectRef: validatingRef(validating.Name, ""),
+				Attestations: map[string]authenticationv1.AttestationValue{
+					"bogusKey": {"val"},
+				},
+			},
+			errContains: `may not specify an unknown key`,
+		},
+		{
+			name:   "validation - multiple values for admissionReviewAPIGroups",
+			saName: sa.Name,
+			spec: authenticationv1.TokenRequestSpec{
+				Audiences:      []string{"api"},
+				BoundObjectRef: validatingRef(validating.Name, ""),
+				Attestations: map[string]authenticationv1.AttestationValue{
+					authenticationv1.AttestationAdmissionReviewAPIGroups: {"a", "b"},
+				},
+			},
+			errContains: `must specify a single value`,
+		},
+		{
+			name:   "validation - empty string value for admissionReviewAPIGroups",
+			saName: sa.Name,
+			spec: authenticationv1.TokenRequestSpec{
+				Audiences:      []string{"api"},
+				BoundObjectRef: validatingRef(validating.Name, ""),
+				Attestations: map[string]authenticationv1.AttestationValue{
+					authenticationv1.AttestationAdmissionReviewAPIGroups: {""},
+				},
+			},
+			errContains: `may not be an empty string`,
+		},
+
+		// Attestations with non-webhook bound objects (gap: rejection logic not yet implemented)
+		{
+			name:   "attestation with Pod bound object",
+			saName: sa.Name,
+			spec: authenticationv1.TokenRequestSpec{
+				Audiences: []string{"api"},
+				BoundObjectRef: &authenticationv1.BoundObjectReference{
+					Kind:       "Pod",
+					APIVersion: "v1",
+					Name:       pod.Name,
+					UID:        pod.UID,
+				},
+				Attestations: appsAttestation,
+			},
+			errContains: `attestations may not be specified when bound object ref is of kind Pod`,
+		},
+		{
+			name:   "attestation with Secret bound object",
+			saName: sa.Name,
+			spec: authenticationv1.TokenRequestSpec{
+				Audiences: []string{"api"},
+				BoundObjectRef: &authenticationv1.BoundObjectReference{
+					Kind:       "Secret",
+					APIVersion: "v1",
+					Name:       secret.Name,
+					UID:        secret.UID,
+				},
+				Attestations: appsAttestation,
+			},
+			errContains: `attestations may not be specified when bound object ref is of kind Secret`,
+		},
+		{
+			name:   "attestation with no bound object ref",
+			saName: sa.Name,
+			spec: authenticationv1.TokenRequestSpec{
+				Audiences:    []string{"api"},
+				Attestations: appsAttestation,
+			},
+			errContains: `attestations may not be specified without a bound object reference`,
+		},
+	}
+
+	for _, tc := range errorCases {
+		t.Run(tc.name, func(t *testing.T) {
+			treq := &authenticationv1.TokenRequest{Spec: tc.spec}
+			_, err := cs.CoreV1().ServiceAccounts(ns.Name).CreateToken(tCtx, tc.saName, treq, metav1.CreateOptions{})
+			if err == nil {
+				t.Fatalf("expected error containing %q but got success", tc.errContains)
+			}
+			if !strings.Contains(err.Error(), tc.errContains) {
+				t.Fatalf("expected error containing %q but got: %v", tc.errContains, err)
+			}
+		})
+	}
+
+	// --- Success cases (table-driven) ---
+
+	type webhookKind struct {
+		kind              string
+		webhookName       string
+		webhookUID        types.UID
+		jwtClaimKey       string // e.g. "validatingwebhookconfiguration"
+		extraNameKey      string
+		extraUIDKey       string
+	}
+
+	webhookKinds := []webhookKind{
+		{
+			kind:         "ValidatingWebhookConfiguration",
+			webhookName:  validating.Name,
+			webhookUID:   validating.UID,
+			jwtClaimKey:  "validatingwebhookconfiguration",
+			extraNameKey: apiserverserviceaccount.ValidatingWebhookConfigurationNameKey,
+			extraUIDKey:  apiserverserviceaccount.ValidatingWebhookConfigurationUIDKey,
+		},
+		{
+			kind:         "MutatingWebhookConfiguration",
+			webhookName:  mutating.Name,
+			webhookUID:   mutating.UID,
+			jwtClaimKey:  "mutatingwebhookconfiguration",
+			extraNameKey: apiserverserviceaccount.MutatingWebhookConfigurationNameKey,
+			extraUIDKey:  apiserverserviceaccount.MutatingWebhookConfigurationUIDKey,
+		},
+	}
+
+	otherWebhookClaimKey := map[string]string{
+		"validatingwebhookconfiguration": "mutatingwebhookconfiguration",
+		"mutatingwebhookconfiguration":   "validatingwebhookconfiguration",
+	}
+
+	successCases := []struct {
+		name       string
+		provideUID bool
+	}{
+		{name: "with correct UID", provideUID: true},
+		{name: "with no UID (auto-populated)", provideUID: false},
+	}
+
+	for _, wk := range webhookKinds {
+		for _, sc := range successCases {
+			name := fmt.Sprintf("%s %s", wk.kind, sc.name)
+			t.Run(name, func(t *testing.T) {
+				var uid types.UID
+				if sc.provideUID {
+					uid = wk.webhookUID
+				}
+				treq := &authenticationv1.TokenRequest{
+					Spec: authenticationv1.TokenRequestSpec{
+						Audiences: []string{"api"},
+						BoundObjectRef: &authenticationv1.BoundObjectReference{
+							Kind:       wk.kind,
+							APIVersion: "admissionregistration.k8s.io/v1",
+							Name:       wk.webhookName,
+							UID:        uid,
+						},
+						Attestations: appsAttestation,
+					},
+				}
+
+				treq, err := cs.CoreV1().ServiceAccounts(ns.Name).CreateToken(tCtx, sa.Name, treq, metav1.CreateOptions{})
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+
+				// Verify JWT claims
+				checkPayload(t, treq.Status.Token, `"system:serviceaccount:myns:test-svcacct"`, "sub")
+				checkPayload(t, treq.Status.Token, `["api"]`, "aud")
+				checkPayload(t, treq.Status.Token, fmt.Sprintf("%q", wk.webhookName), "kubernetes.io", wk.jwtClaimKey, "name")
+				checkPayload(t, treq.Status.Token, fmt.Sprintf("%q", string(wk.webhookUID)), "kubernetes.io", wk.jwtClaimKey, "uid")
+				checkPayload(t, treq.Status.Token, `["apps"]`, "kubernetes.io", "attestations", authenticationv1.AttestationAdmissionReviewAPIGroups)
+				checkPayload(t, treq.Status.Token, "null", "kubernetes.io", "pod")
+				checkPayload(t, treq.Status.Token, "null", "kubernetes.io", "secret")
+				checkPayload(t, treq.Status.Token, "null", "kubernetes.io", "node")
+				checkPayload(t, treq.Status.Token, "null", "kubernetes.io", otherWebhookClaimKey[wk.jwtClaimKey])
+				checkPayload(t, treq.Status.Token, `"myns"`, "kubernetes.io", "namespace")
+				checkPayload(t, treq.Status.Token, `"test-svcacct"`, "kubernetes.io", "serviceaccount", "name")
+
+				// Verify TokenReview
+				info := doTokenReview(t, cs, treq, false)
+				delete(info.Extra, user.CredentialIDKey)
+				if len(info.Extra) != 3 {
+					t.Fatalf("expected Extra to have 3 keys but got %d: %#v", len(info.Extra), info.Extra)
+				}
+				expected := map[string]authenticationv1.ExtraValue{
+					wk.extraNameKey: {wk.webhookName},
+					wk.extraUIDKey:  {string(wk.webhookUID)},
+					apiserverserviceaccount.AttestationAdmissionReviewAPIGroupsKey: {"apps"},
+				}
+				if !reflect.DeepEqual(info.Extra, expected) {
+					t.Fatalf("unexpected Extra:\ngot:\t%#v\nwant:\t%#v", info.Extra, expected)
+				}
+			})
 		}
+	}
 
-		wrongUID = types.UID("wrong")
-		noUID    = types.UID("")
-	)
+	// --- Lifecycle cases: token invalidation on webhook deletion ---
 
-	createTokenRoleAndBinding(t, cs, sa.Name, "myns", "rolename2", []string{authenticationv1.AttestationAdmissionReviewAPIGroups}, []string{"attest"}, []string{"authentication.engelbert.dev"})
+	t.Run("ValidatingWebhookConfiguration deleted invalidates token", func(t *testing.T) {
+		// Create a fresh webhook for this test so deletion doesn't affect other tests
+		val, delVal := createDeleteValidating(t, cs, &admissionregistrationv1.ValidatingWebhookConfiguration{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-validating-lifecycle"},
+			Webhooks: []admissionregistrationv1.ValidatingWebhook{{
+				Name:                    "lifecycle.validate.webhook.test",
+				ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: ptr.To("https://lifecycle.validate.test")},
+				SideEffects:             ptr.To(admissionregistrationv1.SideEffectClassNone),
+				AdmissionReviewVersions: []string{"v1"},
+			}},
+		})
 
-	t.Run("peter-test", func(t *testing.T) {
 		treq := &authenticationv1.TokenRequest{
 			Spec: authenticationv1.TokenRequestSpec{
 				Audiences: []string{"api"},
 				BoundObjectRef: &authenticationv1.BoundObjectReference{
 					Kind:       "ValidatingWebhookConfiguration",
 					APIVersion: "admissionregistration.k8s.io/v1",
-					Name:       validating.Name,
+					Name:       val.Name,
 				},
-				Attestations: map[string]authenticationv1.AttestationValue{
-					authenticationv1.AttestationAdmissionReviewAPIGroups: {"authentication.engelbert.dev"},
-				},
+				Attestations: appsAttestation,
 			},
 		}
 
-		warningHandler.clear()
-		if resp, err := cs.CoreV1().ServiceAccounts(sa.Namespace).CreateToken(tCtx, sa.Name, treq, metav1.CreateOptions{}); err == nil {
-			t.Fatalf("expected err creating token for nonexistent svcacct but got: %#v", resp)
-		}
-		warningHandler.assertEqual(t, nil)
-		sa, del := createDeleteSvcAcct(t, cs, sa)
-		defer del()
-
-		warningHandler.clear()
-		if resp, err := cs.CoreV1().ServiceAccounts(sa.Namespace).CreateToken(tCtx, sa.Name, treq, metav1.CreateOptions{}); err == nil {
-			t.Fatalf("expected err creating token bound to nonexistent validatingwebhookconfiguration but got: %#v", resp)
-		}
-
-		warningHandler.clear()
-		validating, delValidating := createDeleteValidating(t, cs, validating)
-		defer delValidating()
-
-		warningHandler.assertEqual(t, nil)
-
-		// right uid
-		treq.Spec.BoundObjectRef.UID = validating.UID
-		warningHandler.clear()
-		if _, err := cs.CoreV1().ServiceAccounts(sa.Namespace).CreateToken(tCtx, sa.Name, treq, metav1.CreateOptions{}); err != nil {
-			t.Fatalf("err: %v", err)
-		}
-		warningHandler.assertEqual(t, nil)
-		// wrong uid
-		treq.Spec.BoundObjectRef.UID = wrongUID
-		warningHandler.clear()
-		if resp, err := cs.CoreV1().ServiceAccounts(sa.Namespace).CreateToken(tCtx, sa.Name, treq, metav1.CreateOptions{}); err == nil {
-			t.Fatalf("expected err creating token bound to validatingwebhookconfiguration with wrong uid but got: %#v", resp)
-		}
-		warningHandler.assertEqual(t, nil)
-		// no uid
-		treq.Spec.BoundObjectRef.UID = noUID
-		warningHandler.clear()
-		treq, err = cs.CoreV1().ServiceAccounts(sa.Namespace).CreateToken(tCtx, sa.Name, treq, metav1.CreateOptions{})
+		treq, err := cs.CoreV1().ServiceAccounts(ns.Name).CreateToken(tCtx, sa.Name, treq, metav1.CreateOptions{})
 		if err != nil {
-			t.Fatalf("err: %v", err)
+			t.Fatalf("unexpected error: %v", err)
 		}
-		warningHandler.assertEqual(t, nil)
 
-		checkPayload(t, treq.Status.Token, `"system:serviceaccount:myns:test-svcacct"`, "sub")
-		checkPayload(t, treq.Status.Token, `["api"]`, "aud")
-		checkPayload(t, treq.Status.Token, "null", "kubernetes.io", "pod")
-		checkPayload(t, treq.Status.Token, "null", "kubernetes.io", "secret")
-		checkPayload(t, treq.Status.Token, "null", "kubernetes.io", "node")
-		checkPayload(t, treq.Status.Token, `"test-validating-webhook"`, "kubernetes.io", "validatingwebhookconfiguration", "name")
-		checkPayload(t, treq.Status.Token, `["authentication.engelbert.dev"]`, "kubernetes.io", "attestations", authenticationv1.AttestationAdmissionReviewAPIGroups)
-		checkPayload(t, treq.Status.Token, `"myns"`, "kubernetes.io", "namespace")
-		checkPayload(t, treq.Status.Token, `"test-svcacct"`, "kubernetes.io", "serviceaccount", "name")
+		doTokenReview(t, cs, treq, false)
+		delVal()
+		doTokenReview(t, cs, treq, true)
+	})
 
-		info := doTokenReview(t, cs, treq, false)
-		// we are not testing the credential-id feature, so delete this value from the returned extra info map
-		delete(info.Extra, user.CredentialIDKey)
-		if len(info.Extra) != 3 {
-			t.Fatalf("expected Extra have length of 3 but was length %d: %#v", len(info.Extra), info.Extra)
+	t.Run("MutatingWebhookConfiguration deleted invalidates token", func(t *testing.T) {
+		mut, delMut := createDeleteMutating(t, cs, &admissionregistrationv1.MutatingWebhookConfiguration{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-mutating-lifecycle"},
+			Webhooks: []admissionregistrationv1.MutatingWebhook{{
+				Name:                    "lifecycle.mutate.webhook.test",
+				ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: ptr.To("https://lifecycle.mutate.test")},
+				SideEffects:             ptr.To(admissionregistrationv1.SideEffectClassNone),
+				AdmissionReviewVersions: []string{"v1"},
+			}},
+		})
+
+		treq := &authenticationv1.TokenRequest{
+			Spec: authenticationv1.TokenRequestSpec{
+				Audiences: []string{"api"},
+				BoundObjectRef: &authenticationv1.BoundObjectReference{
+					Kind:       "MutatingWebhookConfiguration",
+					APIVersion: "admissionregistration.k8s.io/v1",
+					Name:       mut.Name,
+				},
+				Attestations: appsAttestation,
+			},
 		}
-		if expected := map[string]authenticationv1.ExtraValue{
-			apiserverserviceaccount.ValidatingWebhookConfigurationNameKey:  {validating.ObjectMeta.Name},
-			apiserverserviceaccount.ValidatingWebhookConfigurationUIDKey:   {string(validating.ObjectMeta.UID)},
-			apiserverserviceaccount.AttestationAdmissionReviewAPIGroupsKey: {"authentication.engelbert.dev"},
-		}; !reflect.DeepEqual(info.Extra, expected) {
-			t.Fatalf("unexpected Extra:\ngot:\t%#v\nwant:\t%#v", info.Extra, expected)
+
+		treq, err := cs.CoreV1().ServiceAccounts(ns.Name).CreateToken(tCtx, sa.Name, treq, metav1.CreateOptions{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
-		delValidating()
+
+		doTokenReview(t, cs, treq, false)
+		delMut()
 		doTokenReview(t, cs, treq, true)
 	})
 }
@@ -1605,7 +1971,28 @@ func createDeleteValidating(t *testing.T, cs clientset.Interface, validating *ad
 		}
 		done = true
 		if err := cs.AdmissionregistrationV1().ValidatingWebhookConfigurations().Delete(context.TODO(), validating.Name, metav1.DeleteOptions{
-			GracePeriodSeconds: new(int64(0)),
+			GracePeriodSeconds: ptr.To(int64(0)),
+		}); err != nil {
+			t.Fatalf("err: %v", err)
+		}
+	}
+}
+
+func createDeleteMutating(t *testing.T, cs clientset.Interface, mutating *admissionregistrationv1.MutatingWebhookConfiguration) (*admissionregistrationv1.MutatingWebhookConfiguration, func()) {
+	t.Helper()
+	mutating, err := cs.AdmissionregistrationV1().MutatingWebhookConfigurations().Create(context.TODO(), mutating, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	done := false
+	return mutating, func() {
+		t.Helper()
+		if done {
+			return
+		}
+		done = true
+		if err := cs.AdmissionregistrationV1().MutatingWebhookConfigurations().Delete(context.TODO(), mutating.Name, metav1.DeleteOptions{
+			GracePeriodSeconds: ptr.To(int64(0)),
 		}); err != nil {
 			t.Fatalf("err: %v", err)
 		}

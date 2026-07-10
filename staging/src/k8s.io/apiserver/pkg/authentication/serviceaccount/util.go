@@ -189,19 +189,31 @@ func (sa *ServiceAccountInfo) UserInfo() user.Info {
 		}
 		info.Extra[ValidatingWebhookConfigurationNameKey] = []string{sa.ValidatingWebhookConfigurationName}
 		info.Extra[ValidatingWebhookConfigurationUIDKey] = []string{sa.ValidatingWebhookConfigurationUID}
-		for k, v := range sa.Attestations {
-			switch k {
-			case authentication.AttestationAdmissionReviewAPIGroups:
-				info.Extra[AttestationAdmissionReviewAPIGroupsKey] = v
-			default:
-				klog.Warning(fmt.Printf("attestation key %s not recognized", k))
-				continue
-			}
-		}
+		populateAttestationExtra(info, sa.Attestations)
+	}
 
+	if sa.MutatingWebhookConfigurationName != "" && sa.MutatingWebhookConfigurationUID != "" {
+		if info.Extra == nil {
+			info.Extra = make(map[string][]string)
+		}
+		info.Extra[MutatingWebhookConfigurationNameKey] = []string{sa.MutatingWebhookConfigurationName}
+		info.Extra[MutatingWebhookConfigurationUIDKey] = []string{sa.MutatingWebhookConfigurationUID}
+		populateAttestationExtra(info, sa.Attestations)
 	}
 
 	return info
+}
+
+func populateAttestationExtra(info *user.DefaultInfo, attestations map[string]authentication.AttestationValue) {
+	for k, v := range attestations {
+		switch k {
+		case authentication.AttestationAdmissionReviewAPIGroups:
+			info.Extra[AttestationAdmissionReviewAPIGroupsKey] = v
+		default:
+			klog.Warning(fmt.Printf("attestation key %s not recognized", k))
+			continue
+		}
+	}
 }
 
 // IsServiceAccountToken returns true if the secret is a valid api token for the service account
