@@ -167,12 +167,19 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 		mutating   *admissionregistration.MutatingWebhookConfiguration
 	)
 
+	if len(attestations) > 0 && req.Spec.BoundObjectRef == nil {
+		return nil, errors.NewBadRequest("attestations may not be specified without a bound object reference")
+	}
+
 	if ref := req.Spec.BoundObjectRef; ref != nil {
 		var uid types.UID
 
 		gvk := schema.FromAPIVersionAndKind(ref.APIVersion, ref.Kind)
 		switch {
 		case gvk.Group == "" && gvk.Kind == "Pod":
+			if len(attestations) > 0 {
+				return nil, errors.NewBadRequest(fmt.Sprintf("attestations may not be specified when bound object ref is of kind %s", gvk.Kind))
+			}
 			newCtx := newContext(ctx, "pods", ref.Name, namespace, gvk)
 			podObj, err := r.pods.Get(newCtx, ref.Name, &metav1.GetOptions{})
 			if err != nil {
@@ -206,6 +213,9 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 				}
 			}
 		case gvk.Group == "" && gvk.Kind == "Node":
+			if len(attestations) > 0 {
+				return nil, errors.NewBadRequest(fmt.Sprintf("attestations may not be specified when bound object ref is of kind %s", gvk.Kind))
+			}
 			if !utilfeature.DefaultFeatureGate.Enabled(features.ServiceAccountTokenNodeBinding) {
 				return nil, errors.NewBadRequest(fmt.Sprintf("cannot bind token to a Node object as the %q feature-gate is disabled", features.ServiceAccountTokenNodeBinding))
 			}
@@ -217,6 +227,9 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 			node = nodeObj.(*api.Node)
 			uid = node.UID
 		case gvk.Group == "" && gvk.Kind == "Secret":
+			if len(attestations) > 0 {
+				return nil, errors.NewBadRequest(fmt.Sprintf("attestations may not be specified when bound object ref is of kind %s", gvk.Kind))
+			}
 			newCtx := newContext(ctx, "secrets", ref.Name, namespace, gvk)
 			secretObj, err := r.secrets.Get(newCtx, ref.Name, &metav1.GetOptions{})
 			if err != nil {
