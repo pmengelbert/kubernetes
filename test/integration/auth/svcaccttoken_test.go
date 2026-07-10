@@ -401,9 +401,6 @@ func TestServiceAccountTokenCreate(t *testing.T) {
 					APIVersion: "v1",
 					Name:       pod.Name,
 				},
-				Attestations: map[string]authenticationv1.AttestationValue{
-					"allowedAPIGroup": {"baz"},
-				},
 			},
 		}
 
@@ -1388,12 +1385,27 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 	// Create webhook configurations
 	validating, delValidating := createDeleteValidating(t, cs, &admissionregistrationv1.ValidatingWebhookConfiguration{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-validating-webhook"},
-		Webhooks: []admissionregistrationv1.ValidatingWebhook{{
-			Name:                    "validate.webhook.test",
-			ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: ptr.To("https://validate.test")},
-			SideEffects:             ptr.To(admissionregistrationv1.SideEffectClassNone),
-			AdmissionReviewVersions: []string{"v1"},
-		}},
+		Webhooks: []admissionregistrationv1.ValidatingWebhook{
+			{
+				Name:                    "validate.webhook.test",
+				ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: ptr.To("https://validate.test")},
+				SideEffects:             ptr.To(admissionregistrationv1.SideEffectClassNone),
+				AdmissionReviewVersions: []string{"v1"},
+			},
+			{
+				Name: "validate.service.webhook.test",
+				ClientConfig: admissionregistrationv1.WebhookClientConfig{
+					Service: &admissionregistrationv1.ServiceReference{
+						Namespace: "webhook-ns",
+						Name:      "webhook-svc",
+						Port:      ptr.To(int32(8443)),
+						Path:      ptr.To("/validate"),
+					},
+				},
+				SideEffects:             ptr.To(admissionregistrationv1.SideEffectClassNone),
+				AdmissionReviewVersions: []string{"v1"},
+			},
+		},
 	})
 	defer delValidating()
 
@@ -1434,6 +1446,9 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 	appsAttestation := map[string]authenticationv1.AttestationValue{
 		authenticationv1.AttestationAdmissionReviewAPIGroups: {"apps"},
 	}
+
+	validatingAudience := "https://validate.test"
+	mutatingAudience := "https://mutate.test"
 
 	validatingRef := func(name string, uid types.UID) *authenticationv1.BoundObjectReference {
 		return &authenticationv1.BoundObjectReference{
@@ -1498,7 +1513,7 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			name:   "wrong UID on ValidatingWebhookConfiguration",
 			saName: sa.Name,
 			spec: authenticationv1.TokenRequestSpec{
-				Audiences:      []string{"api"},
+				Audiences:      []string{validatingAudience},
 				BoundObjectRef: validatingRef(validating.Name, "wrong"),
 				Attestations:   appsAttestation,
 			},
@@ -1508,7 +1523,7 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			name:   "wrong UID on MutatingWebhookConfiguration",
 			saName: sa.Name,
 			spec: authenticationv1.TokenRequestSpec{
-				Audiences:      []string{"api"},
+				Audiences:      []string{mutatingAudience},
 				BoundObjectRef: mutatingRef(mutating.Name, "wrong"),
 				Attestations:   appsAttestation,
 			},
@@ -1649,6 +1664,28 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			},
 			errContains: `attestations may not be specified without a bound object reference`,
 		},
+
+		// Audience validation
+		{
+			name:   "multiple audiences for webhook-bound token",
+			saName: sa.Name,
+			spec: authenticationv1.TokenRequestSpec{
+				Audiences:      []string{"https://validate.test", "https://other.test"},
+				BoundObjectRef: validatingRef(validating.Name, ""),
+				Attestations:   appsAttestation,
+			},
+			errContains: `exactly one audience is required when bound object ref is a webhook configuration`,
+		},
+		{
+			name:   "wrong audience for webhook-bound token",
+			saName: sa.Name,
+			spec: authenticationv1.TokenRequestSpec{
+				Audiences:      []string{"https://wrong.audience.test"},
+				BoundObjectRef: validatingRef(validating.Name, ""),
+				Attestations:   appsAttestation,
+			},
+			errContains: `audience "https://wrong.audience.test" does not match any webhook client config in the bound object`,
+		},
 	}
 
 	for _, tc := range errorCases {
@@ -1670,6 +1707,7 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 		kind              string
 		webhookName       string
 		webhookUID        types.UID
+		audience          string
 		jwtClaimKey       string // e.g. "validatingwebhookconfiguration"
 		extraNameKey      string
 		extraUIDKey       string
@@ -1680,6 +1718,7 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			kind:         "ValidatingWebhookConfiguration",
 			webhookName:  validating.Name,
 			webhookUID:   validating.UID,
+			audience:     validatingAudience,
 			jwtClaimKey:  "validatingwebhookconfiguration",
 			extraNameKey: apiserverserviceaccount.ValidatingWebhookConfigurationNameKey,
 			extraUIDKey:  apiserverserviceaccount.ValidatingWebhookConfigurationUIDKey,
@@ -1688,6 +1727,7 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			kind:         "MutatingWebhookConfiguration",
 			webhookName:  mutating.Name,
 			webhookUID:   mutating.UID,
+			audience:     mutatingAudience,
 			jwtClaimKey:  "mutatingwebhookconfiguration",
 			extraNameKey: apiserverserviceaccount.MutatingWebhookConfigurationNameKey,
 			extraUIDKey:  apiserverserviceaccount.MutatingWebhookConfigurationUIDKey,
@@ -1717,7 +1757,7 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 				}
 				treq := &authenticationv1.TokenRequest{
 					Spec: authenticationv1.TokenRequestSpec{
-						Audiences: []string{"api"},
+						Audiences: []string{wk.audience},
 						BoundObjectRef: &authenticationv1.BoundObjectReference{
 							Kind:       wk.kind,
 							APIVersion: "admissionregistration.k8s.io/v1",
@@ -1735,7 +1775,7 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 
 				// Verify JWT claims
 				checkPayload(t, treq.Status.Token, `"system:serviceaccount:myns:test-svcacct"`, "sub")
-				checkPayload(t, treq.Status.Token, `["api"]`, "aud")
+				checkPayload(t, treq.Status.Token, fmt.Sprintf(`["%s"]`, wk.audience), "aud")
 				checkPayload(t, treq.Status.Token, fmt.Sprintf("%q", wk.webhookName), "kubernetes.io", wk.jwtClaimKey, "name")
 				checkPayload(t, treq.Status.Token, fmt.Sprintf("%q", string(wk.webhookUID)), "kubernetes.io", wk.jwtClaimKey, "uid")
 				checkPayload(t, treq.Status.Token, `["apps"]`, "kubernetes.io", "attestations", authenticationv1.AttestationAdmissionReviewAPIGroups)
@@ -1747,7 +1787,7 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 				checkPayload(t, treq.Status.Token, `"test-svcacct"`, "kubernetes.io", "serviceaccount", "name")
 
 				// Verify TokenReview
-				info := doTokenReview(t, cs, treq, false)
+				info := doTokenReviewWithAudiences(t, cs, treq, treq.Spec.Audiences, false)
 				delete(info.Extra, user.CredentialIDKey)
 				if len(info.Extra) != 3 {
 					t.Fatalf("expected Extra to have 3 keys but got %d: %#v", len(info.Extra), info.Extra)
@@ -1763,6 +1803,30 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			})
 		}
 	}
+
+	// Service-configured webhook audience test
+	t.Run("ValidatingWebhookConfiguration with service audience", func(t *testing.T) {
+		serviceAudience := "https://webhook-svc.webhook-ns.svc:8443/validate"
+		treq := &authenticationv1.TokenRequest{
+			Spec: authenticationv1.TokenRequestSpec{
+				Audiences: []string{serviceAudience},
+				BoundObjectRef: &authenticationv1.BoundObjectReference{
+					Kind:       "ValidatingWebhookConfiguration",
+					APIVersion: "admissionregistration.k8s.io/v1",
+					Name:       validating.Name,
+				},
+				Attestations: appsAttestation,
+			},
+		}
+
+		treq, err := cs.CoreV1().ServiceAccounts(ns.Name).CreateToken(tCtx, sa.Name, treq, metav1.CreateOptions{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		checkPayload(t, treq.Status.Token, fmt.Sprintf(`["%s"]`, serviceAudience), "aud")
+		checkPayload(t, treq.Status.Token, `"test-validating-webhook"`, "kubernetes.io", "validatingwebhookconfiguration", "name")
+	})
 
 	// --- Lifecycle cases: token invalidation on webhook deletion ---
 
@@ -1780,7 +1844,7 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 
 		treq := &authenticationv1.TokenRequest{
 			Spec: authenticationv1.TokenRequestSpec{
-				Audiences: []string{"api"},
+				Audiences: []string{"https://lifecycle.validate.test"},
 				BoundObjectRef: &authenticationv1.BoundObjectReference{
 					Kind:       "ValidatingWebhookConfiguration",
 					APIVersion: "admissionregistration.k8s.io/v1",
@@ -1795,9 +1859,9 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		doTokenReview(t, cs, treq, false)
+		doTokenReviewWithAudiences(t, cs, treq, treq.Spec.Audiences, false)
 		delVal()
-		doTokenReview(t, cs, treq, true)
+		doTokenReviewWithAudiences(t, cs, treq, treq.Spec.Audiences, true)
 	})
 
 	t.Run("MutatingWebhookConfiguration deleted invalidates token", func(t *testing.T) {
@@ -1813,7 +1877,7 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 
 		treq := &authenticationv1.TokenRequest{
 			Spec: authenticationv1.TokenRequestSpec{
-				Audiences: []string{"api"},
+				Audiences: []string{"https://lifecycle.mutate.test"},
 				BoundObjectRef: &authenticationv1.BoundObjectReference{
 					Kind:       "MutatingWebhookConfiguration",
 					APIVersion: "admissionregistration.k8s.io/v1",
@@ -1828,20 +1892,24 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		doTokenReview(t, cs, treq, false)
+		doTokenReviewWithAudiences(t, cs, treq, treq.Spec.Audiences, false)
 		delMut()
-		doTokenReview(t, cs, treq, true)
+		doTokenReviewWithAudiences(t, cs, treq, treq.Spec.Audiences, true)
 	})
 }
 
 func doTokenReview(t *testing.T, cs clientset.Interface, treq *authenticationv1.TokenRequest, expectErr bool) authenticationv1.UserInfo {
+	return doTokenReviewWithAudiences(t, cs, treq, nil, expectErr)
+}
+
+func doTokenReviewWithAudiences(t *testing.T, cs clientset.Interface, treq *authenticationv1.TokenRequest, audiences []string, expectErr bool) authenticationv1.UserInfo {
 	t.Helper()
 	tries := 0
 	for {
 		trev, err := cs.AuthenticationV1().TokenReviews().Create(context.TODO(), &authenticationv1.TokenReview{
 			Spec: authenticationv1.TokenReviewSpec{
 				Token:     treq.Status.Token,
-				Audiences: treq.Spec.Audiences,
+				Audiences: audiences,
 			},
 		}, metav1.CreateOptions{})
 		if err != nil {

@@ -167,19 +167,12 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 		mutating   *admissionregistration.MutatingWebhookConfiguration
 	)
 
-	if len(attestations) > 0 && req.Spec.BoundObjectRef == nil {
-		return nil, errors.NewBadRequest("attestations may not be specified without a bound object reference")
-	}
-
 	if ref := req.Spec.BoundObjectRef; ref != nil {
 		var uid types.UID
 
 		gvk := schema.FromAPIVersionAndKind(ref.APIVersion, ref.Kind)
 		switch {
 		case gvk.Group == "" && gvk.Kind == "Pod":
-			if len(attestations) > 0 {
-				return nil, errors.NewBadRequest(fmt.Sprintf("attestations may not be specified when bound object ref is of kind %s", gvk.Kind))
-			}
 			newCtx := newContext(ctx, "pods", ref.Name, namespace, gvk)
 			podObj, err := r.pods.Get(newCtx, ref.Name, &metav1.GetOptions{})
 			if err != nil {
@@ -213,9 +206,6 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 				}
 			}
 		case gvk.Group == "" && gvk.Kind == "Node":
-			if len(attestations) > 0 {
-				return nil, errors.NewBadRequest(fmt.Sprintf("attestations may not be specified when bound object ref is of kind %s", gvk.Kind))
-			}
 			if !utilfeature.DefaultFeatureGate.Enabled(features.ServiceAccountTokenNodeBinding) {
 				return nil, errors.NewBadRequest(fmt.Sprintf("cannot bind token to a Node object as the %q feature-gate is disabled", features.ServiceAccountTokenNodeBinding))
 			}
@@ -227,9 +217,6 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 			node = nodeObj.(*api.Node)
 			uid = node.UID
 		case gvk.Group == "" && gvk.Kind == "Secret":
-			if len(attestations) > 0 {
-				return nil, errors.NewBadRequest(fmt.Sprintf("attestations may not be specified when bound object ref is of kind %s", gvk.Kind))
-			}
 			newCtx := newContext(ctx, "secrets", ref.Name, namespace, gvk)
 			secretObj, err := r.secrets.Get(newCtx, ref.Name, &metav1.GetOptions{})
 			if err != nil {
@@ -249,15 +236,26 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 				return nil, err
 			}
 
+			if len(req.Spec.Audiences) != 1 {
+				return nil, errors.NewBadRequest("exactly one audience is required when bound object ref is a webhook configuration")
+			}
+
 			switch gvk.Kind {
 			case "ValidatingWebhookConfiguration":
 				valObj, err := r.validatingWebhookConfigurations.Get(ctx, ref.Name, metav1.GetOptions{})
 				if err != nil {
 					return nil, err
 				}
-
 				validating = valObj
 				uid = validating.UID
+
+				var clientConfigs []admissionregistration.WebhookClientConfig
+				for _, wh := range validating.Webhooks {
+					clientConfigs = append(clientConfigs, wh.ClientConfig)
+				}
+				if err := validateWebhookAudience(req.Spec.Audiences[0], clientConfigs); err != nil {
+					return nil, err
+				}
 			case "MutatingWebhookConfiguration":
 				mutObj, err := r.mutatingWebhookConfigurations.Get(newCtx, ref.Name, metav1.GetOptions{})
 				if err != nil {
@@ -265,6 +263,14 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 				}
 				mutating = mutObj
 				uid = mutating.UID
+
+				var clientConfigs []admissionregistration.WebhookClientConfig
+				for _, wh := range mutating.Webhooks {
+					clientConfigs = append(clientConfigs, wh.ClientConfig)
+				}
+				if err := validateWebhookAudience(req.Spec.Audiences[0], clientConfigs); err != nil {
+					return nil, err
+				}
 			}
 		default:
 			return nil, errors.NewBadRequest(fmt.Sprintf("cannot bind token to object of type %s", gvk.String()))
@@ -334,6 +340,32 @@ func getSvcAccountUserInfo(req *authenticationapi.TokenRequest, ref *authenticat
 
 func firstCharToLower(kind string) string {
 	return string([]byte(kind)[0]+0x20) + string([]byte(kind)[1:])
+}
+
+// validateWebhookAudience checks that the requested audience matches at least one
+// webhook's client config. For URL-configured webhooks the audience must be the URL
+// verbatim. For service-configured webhooks the audience must be
+// https://$name.$namespace.svc:$port[/$path].
+func validateWebhookAudience(audience string, clientConfigs []admissionregistration.WebhookClientConfig) error {
+	for _, cc := range clientConfigs {
+		if cc.URL != nil && audience == *cc.URL {
+			return nil
+		}
+		if cc.Service != nil {
+			port := int32(443)
+			if cc.Service.Port != nil {
+				port = *cc.Service.Port
+			}
+			expected := fmt.Sprintf("https://%s.%s.svc:%d", cc.Service.Name, cc.Service.Namespace, port)
+			if cc.Service.Path != nil && *cc.Service.Path != "" {
+				expected += *cc.Service.Path
+			}
+			if audience == expected {
+				return nil
+			}
+		}
+	}
+	return errors.NewBadRequest(fmt.Sprintf("audience %q does not match any webhook client config in the bound object", audience))
 }
 
 func (r *TokenREST) authorizeAdmissionWebhookAuthnTokenRequest(ctx context.Context, userInfo user.Info, admissionReviewAPIGroup string) error {

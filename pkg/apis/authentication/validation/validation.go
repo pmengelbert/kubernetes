@@ -19,6 +19,8 @@ limitations under the License.
 package validation
 
 import (
+	"fmt"
+
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/kubernetes/pkg/apis/authentication"
 )
@@ -37,12 +39,29 @@ func ValidateTokenRequest(tr *authentication.TokenRequest) field.ErrorList {
 		allErrs = append(allErrs, field.Invalid(specPath.Child("expirationSeconds"), tr.Spec.ExpirationSeconds, "may not specify a duration larger than 2^32 seconds"))
 
 	}
-	allErrs = append(allErrs, validateAttestations(tr.Spec.Attestations, specPath)...)
-	return allErrs
+	attestErrs := validateAttestations(tr.Spec.Attestations, tr.Spec.BoundObjectRef, specPath)
+	return append(allErrs, attestErrs...)
 }
 
-func validateAttestations(attestations map[string]authentication.AttestationValue, specPath *field.Path) field.ErrorList {
+func validateAttestations(attestations map[string]authentication.AttestationValue, boundObjectRef *authentication.BoundObjectReference, specPath *field.Path) field.ErrorList {
 	errs := field.ErrorList{}
+
+	if len(attestations) == 0 {
+		return errs
+	}
+
+	// Attestations require a webhook-type bound object reference.
+	if boundObjectRef == nil {
+		errs = append(errs, field.Invalid(specPath.Child("attestations"), "", "attestations may not be specified without a bound object reference"))
+		return errs
+	}
+	switch boundObjectRef.Kind {
+	case "ValidatingWebhookConfiguration", "MutatingWebhookConfiguration":
+		// allowed
+	default:
+		errs = append(errs, field.Invalid(specPath.Child("attestations"), boundObjectRef.Kind, fmt.Sprintf("attestations may not be specified when bound object ref is of kind %s", boundObjectRef.Kind)))
+		return errs
+	}
 
 	for key, values := range attestations {
 		if len(values) == 0 {
