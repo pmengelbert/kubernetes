@@ -1389,7 +1389,7 @@ func TestPeter(t *testing.T) {
 				Audiences: []string{"api"},
 				BoundObjectRef: &authenticationv1.BoundObjectReference{
 					Kind:       "ValidatingWebhookConfiguration",
-					APIVersion: "admissionregistration/v1",
+					APIVersion: "admissionregistration.k8s.io/v1",
 					Name:       validating.Name,
 				},
 				Attestations: map[string]authenticationv1.AttestationValue{

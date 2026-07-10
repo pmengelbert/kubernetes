@@ -224,7 +224,7 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 			}
 			secret = secretObj.(*api.Secret)
 			uid = secret.UID
-		case gvk.Group == "admissionregistration" && (gvk.Kind == "ValidatingWebhookConfiguration" || gvk.Kind == "MutatingWebhookConfiguration"):
+		case gvk.Group == "admissionregistration.k8s.io" && (gvk.Kind == "ValidatingWebhookConfiguration" || gvk.Kind == "MutatingWebhookConfiguration"):
 			newCtx := newContext(ctx, firstCharToLower(gvk.Kind), ref.Name, "", gvk)
 			admissionReviewAPIGroups, ok := attestations[authenticationapi.AttestationAdmissionReviewAPIGroups]
 			if !ok {
