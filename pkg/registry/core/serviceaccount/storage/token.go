@@ -250,10 +250,15 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 				uid = validating.UID
 
 				var clientConfigs []admissionregistration.WebhookClientConfig
+				var rules []admissionregistration.RuleWithOperations
 				for _, wh := range validating.Webhooks {
 					clientConfigs = append(clientConfigs, wh.ClientConfig)
+					rules = append(rules, wh.Rules...)
 				}
 				if err := validateWebhookAudience(req.Spec.Audiences[0], clientConfigs); err != nil {
+					return nil, err
+				}
+				if err := validateAttestationAPIGroup(admissionReviewAPIGroups[0], rules); err != nil {
 					return nil, err
 				}
 			case "MutatingWebhookConfiguration":
@@ -265,10 +270,15 @@ func (r *TokenREST) Create(ctx context.Context, name string, obj runtime.Object,
 				uid = mutating.UID
 
 				var clientConfigs []admissionregistration.WebhookClientConfig
+				var rules []admissionregistration.RuleWithOperations
 				for _, wh := range mutating.Webhooks {
 					clientConfigs = append(clientConfigs, wh.ClientConfig)
+					rules = append(rules, wh.Rules...)
 				}
 				if err := validateWebhookAudience(req.Spec.Audiences[0], clientConfigs); err != nil {
+					return nil, err
+				}
+				if err := validateAttestationAPIGroup(admissionReviewAPIGroups[0], rules); err != nil {
 					return nil, err
 				}
 			}
@@ -366,6 +376,25 @@ func validateWebhookAudience(audience string, clientConfigs []admissionregistrat
 		}
 	}
 	return errors.NewBadRequest(fmt.Sprintf("audience %q does not match any webhook client config in the bound object", audience))
+}
+
+// validateAttestationAPIGroup checks that the attested API group matches at least
+// one Rule in the webhook configuration. A "*" attestation value skips this check
+// since it represents all API groups. A "*" in a Rule's APIGroups matches any
+// attested value.
+func validateAttestationAPIGroup(attestedGroup string, rules []admissionregistration.RuleWithOperations) error {
+	// "*" means the token is valid for all API groups; skip the check.
+	if attestedGroup == "*" {
+		return nil
+	}
+	for _, rule := range rules {
+		for _, group := range rule.APIGroups {
+			if group == "*" || group == attestedGroup {
+				return nil
+			}
+		}
+	}
+	return errors.NewBadRequest(fmt.Sprintf("attested API group %q does not match any rule in the bound webhook configuration", attestedGroup))
 }
 
 func (r *TokenREST) authorizeAdmissionWebhookAuthnTokenRequest(ctx context.Context, userInfo user.Info, admissionReviewAPIGroup string) error {

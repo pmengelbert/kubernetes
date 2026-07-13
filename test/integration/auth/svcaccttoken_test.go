@@ -1294,13 +1294,19 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 	defer delSANoRBAC()
 
 	// Create webhook configurations
+	appsRule := []admissionregistrationv1.RuleWithOperations{{
+		Operations: []admissionregistrationv1.OperationType{admissionregistrationv1.Create},
+		Rule:       admissionregistrationv1.Rule{APIGroups: []string{"apps"}, APIVersions: []string{"v1"}, Resources: []string{"deployments"}},
+	}}
+
 	validating, delValidating := createDeleteValidating(t, cs, &admissionregistrationv1.ValidatingWebhookConfiguration{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-validating-webhook"},
 		Webhooks: []admissionregistrationv1.ValidatingWebhook{
 			{
 				Name:                    "validate.webhook.test",
-				ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: new("https://validate.test")},
-				SideEffects:             new(admissionregistrationv1.SideEffectClassNone),
+				ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: ptr.To("https://validate.test")},
+				Rules:                   appsRule,
+				SideEffects:             ptr.To(admissionregistrationv1.SideEffectClassNone),
 				AdmissionReviewVersions: []string{"v1"},
 			},
 			{
@@ -1309,11 +1315,12 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 					Service: &admissionregistrationv1.ServiceReference{
 						Namespace: "webhook-ns",
 						Name:      "webhook-svc",
-						Port:      new(int32(8443)),
-						Path:      new("/validate"),
+						Port:      ptr.To(int32(8443)),
+						Path:      ptr.To("/validate"),
 					},
 				},
-				SideEffects:             new(admissionregistrationv1.SideEffectClassNone),
+				Rules:                   appsRule,
+				SideEffects:             ptr.To(admissionregistrationv1.SideEffectClassNone),
 				AdmissionReviewVersions: []string{"v1"},
 			},
 		},
@@ -1325,8 +1332,9 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 		Webhooks: []admissionregistrationv1.MutatingWebhook{
 			{
 				Name:                    "mutate.webhook.test",
-				ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: new("https://mutate.test")},
-				SideEffects:             new(admissionregistrationv1.SideEffectClassNone),
+				ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: ptr.To("https://mutate.test")},
+				Rules:                   appsRule,
+				SideEffects:             ptr.To(admissionregistrationv1.SideEffectClassNone),
 				AdmissionReviewVersions: []string{"v1"},
 			},
 			{
@@ -1335,10 +1343,11 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 					Service: &admissionregistrationv1.ServiceReference{
 						Namespace: "webhook-ns",
 						Name:      "mutating-svc",
-						Port:      new(int32(9443)),
+						Port:      ptr.To(int32(9443)),
 					},
 				},
-				SideEffects:             new(admissionregistrationv1.SideEffectClassNone),
+				Rules:                   appsRule,
+				SideEffects:             ptr.To(admissionregistrationv1.SideEffectClassNone),
 				AdmissionReviewVersions: []string{"v1"},
 			},
 		},
@@ -1360,9 +1369,9 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 	})
 	defer delSecret()
 
-	// RBAC: test-svcacct can attest for "apps" only
+	// RBAC: test-svcacct can attest for any API group
 	createAttestRoleAndBinding(t, cs, sa.Name, ns.Name, "attest-apps",
-		[]string{authenticationv1.AttestationAdmissionReviewAPIGroups}, []string{"apps"})
+		[]string{authenticationv1.AttestationAdmissionReviewAPIGroups}, nil)
 
 	// RBAC: test-svcacct-no-rbac can create tokens but has no attest permission
 	createTokenCreateOnlyRoleAndBinding(t, cs, saNoRBAC.Name, ns.Name, "no-rbac-token-only")
@@ -1477,22 +1486,10 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 
 		// Authorization failures
 		{
-			name:   "forbidden - authorized for apps but requesting networking.k8s.io",
-			saName: sa.Name,
-			spec: authenticationv1.TokenRequestSpec{
-				Audiences:      []string{"api"},
-				BoundObjectRef: validatingRef(validating.Name, ""),
-				Attestations: map[string]authenticationv1.AttestationValue{
-					authenticationv1.AttestationAdmissionReviewAPIGroups: {"networking.k8s.io"},
-				},
-			},
-			errContains: `User "system:serviceaccount:myns:test-svcacct" cannot attest resource "admissionReviewAPIGroups" in API group "authentication.k8s.io" at the cluster scope`,
-		},
-		{
-			name:   "forbidden - no attest permission at all",
+			name:   "forbidden - no attest permission",
 			saName: saNoRBAC.Name,
 			spec: authenticationv1.TokenRequestSpec{
-				Audiences:      []string{"api"},
+				Audiences:      []string{validatingAudience},
 				BoundObjectRef: validatingRef(validating.Name, ""),
 				Attestations:   appsAttestation,
 			},
@@ -1610,6 +1607,20 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 				Attestations:   appsAttestation,
 			},
 			errContains: `audience "https://wrong.audience.test" does not match any webhook client config in the bound object`,
+		},
+
+		// Attestation API group does not match webhook rules
+		{
+			name:   "attested API group not in webhook rules",
+			saName: sa.Name,
+			spec: authenticationv1.TokenRequestSpec{
+				Audiences:      []string{validatingAudience},
+				BoundObjectRef: validatingRef(validating.Name, ""),
+				Attestations: map[string]authenticationv1.AttestationValue{
+					authenticationv1.AttestationAdmissionReviewAPIGroups: {"networking.k8s.io"},
+				},
+			},
+			errContains: `attested API group "networking.k8s.io" does not match any rule in the bound webhook configuration`,
 		},
 	}
 
@@ -1785,6 +1796,30 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 		})
 	}
 
+	// Wildcard attestation skips API group check
+	t.Run("wildcard admissionReviewAPIGroups skips rule check", func(t *testing.T) {
+		treq := &authenticationv1.TokenRequest{
+			Spec: authenticationv1.TokenRequestSpec{
+				Audiences: []string{validatingAudience},
+				BoundObjectRef: &authenticationv1.BoundObjectReference{
+					Kind:       "ValidatingWebhookConfiguration",
+					APIVersion: "admissionregistration.k8s.io/v1",
+					Name:       validating.Name,
+				},
+				Attestations: map[string]authenticationv1.AttestationValue{
+					authenticationv1.AttestationAdmissionReviewAPIGroups: {"*"},
+				},
+			},
+		}
+
+		treq, err := cs.CoreV1().ServiceAccounts(ns.Name).CreateToken(tCtx, sa.Name, treq, metav1.CreateOptions{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		checkPayload(t, treq.Status.Token, `["*"]`, "kubernetes.io", "attestations", authenticationv1.AttestationAdmissionReviewAPIGroups)
+	})
+
 	// --- Lifecycle cases: token invalidation on webhook deletion ---
 
 	t.Run("ValidatingWebhookConfiguration deleted invalidates token", func(t *testing.T) {
@@ -1793,8 +1828,9 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "test-validating-lifecycle"},
 			Webhooks: []admissionregistrationv1.ValidatingWebhook{{
 				Name:                    "lifecycle.validate.webhook.test",
-				ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: new("https://lifecycle.validate.test")},
-				SideEffects:             new(admissionregistrationv1.SideEffectClassNone),
+				ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: ptr.To("https://lifecycle.validate.test")},
+				Rules:                   appsRule,
+				SideEffects:             ptr.To(admissionregistrationv1.SideEffectClassNone),
 				AdmissionReviewVersions: []string{"v1"},
 			}},
 		})
@@ -1826,8 +1862,9 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "test-mutating-lifecycle"},
 			Webhooks: []admissionregistrationv1.MutatingWebhook{{
 				Name:                    "lifecycle.mutate.webhook.test",
-				ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: new("https://lifecycle.mutate.test")},
-				SideEffects:             new(admissionregistrationv1.SideEffectClassNone),
+				ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: ptr.To("https://lifecycle.mutate.test")},
+				Rules:                   appsRule,
+				SideEffects:             ptr.To(admissionregistrationv1.SideEffectClassNone),
 				AdmissionReviewVersions: []string{"v1"},
 			}},
 		})
