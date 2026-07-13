@@ -1293,6 +1293,11 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 	})
 	defer delSANoRBAC()
 
+	saWildcard, delSAWildcard := createDeleteSvcAcct(t, cs, &v1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-svcacct-wildcard", Namespace: ns.Name},
+	})
+	defer delSAWildcard()
+
 	// Create webhook configurations
 	appsRule := []admissionregistrationv1.RuleWithOperations{{
 		Operations: []admissionregistrationv1.OperationType{admissionregistrationv1.Create},
@@ -1369,12 +1374,16 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 	})
 	defer delSecret()
 
-	// RBAC: test-svcacct can attest for any API group
+	// RBAC: test-svcacct can attest for "apps" and "networking.k8s.io"
 	createAttestRoleAndBinding(t, cs, sa.Name, ns.Name, "attest-apps",
-		[]string{authenticationv1.AttestationAdmissionReviewAPIGroups}, nil)
+		[]string{authenticationv1.AttestationAdmissionReviewAPIGroups}, []string{"apps", "networking.k8s.io"})
 
 	// RBAC: test-svcacct-no-rbac can create tokens but has no attest permission
 	createTokenCreateOnlyRoleAndBinding(t, cs, saNoRBAC.Name, ns.Name, "no-rbac-token-only")
+
+	// RBAC: test-svcacct-wildcard can attest for "*" (all API groups)
+	createAttestRoleAndBinding(t, cs, saWildcard.Name, ns.Name, "attest-wildcard",
+		[]string{authenticationv1.AttestationAdmissionReviewAPIGroups}, []string{"*"})
 
 	// Helpers to build token requests concisely
 	appsAttestation := map[string]authenticationv1.AttestationValue{
@@ -1415,8 +1424,8 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			name:   "nonexistent service account",
 			saName: "test-svcacct-nonexistent",
 			spec: authenticationv1.TokenRequestSpec{
-				Audiences:      []string{"api"},
-				BoundObjectRef: validatingRef(validating.Name, ""),
+				Audiences:      []string{validatingAudience},
+				BoundObjectRef: validatingRef(validating.Name, validating.UID),
 				Attestations:   appsAttestation,
 			},
 			errContains: `"test-svcacct-nonexistent" not found`,
@@ -1425,7 +1434,7 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			name:   "nonexistent ValidatingWebhookConfiguration",
 			saName: sa.Name,
 			spec: authenticationv1.TokenRequestSpec{
-				Audiences:      []string{"api"},
+				Audiences:      []string{validatingAudience},
 				BoundObjectRef: validatingRef("test-validating-webhook-nonexistent", ""),
 				Attestations:   appsAttestation,
 			},
@@ -1435,7 +1444,7 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			name:   "nonexistent MutatingWebhookConfiguration",
 			saName: sa.Name,
 			spec: authenticationv1.TokenRequestSpec{
-				Audiences:      []string{"api"},
+				Audiences:      []string{mutatingAudience},
 				BoundObjectRef: mutatingRef("test-mutating-webhook-nonexistent", ""),
 				Attestations:   appsAttestation,
 			},
@@ -1469,8 +1478,8 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			name:   "missing attestation for ValidatingWebhookConfiguration",
 			saName: sa.Name,
 			spec: authenticationv1.TokenRequestSpec{
-				Audiences:      []string{"api"},
-				BoundObjectRef: validatingRef(validating.Name, ""),
+				Audiences:      []string{validatingAudience},
+				BoundObjectRef: validatingRef(validating.Name, validating.UID),
 			},
 			errContains: `allowedAPIGroups attestation is required when bound object ref is of kind ValidatingWebhookConfiguration`,
 		},
@@ -1478,8 +1487,8 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			name:   "missing attestation for MutatingWebhookConfiguration",
 			saName: sa.Name,
 			spec: authenticationv1.TokenRequestSpec{
-				Audiences:      []string{"api"},
-				BoundObjectRef: mutatingRef(mutating.Name, ""),
+				Audiences:      []string{mutatingAudience},
+				BoundObjectRef: mutatingRef(mutating.Name, mutating.UID),
 			},
 			errContains: `allowedAPIGroups attestation is required when bound object ref is of kind MutatingWebhookConfiguration`,
 		},
@@ -1490,10 +1499,22 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			saName: saNoRBAC.Name,
 			spec: authenticationv1.TokenRequestSpec{
 				Audiences:      []string{validatingAudience},
-				BoundObjectRef: validatingRef(validating.Name, ""),
+				BoundObjectRef: validatingRef(validating.Name, validating.UID),
 				Attestations:   appsAttestation,
 			},
 			errContains: `User "system:serviceaccount:myns:test-svcacct-no-rbac" cannot attest resource "admissionReviewAPIGroups" in API group "authentication.k8s.io" at the cluster scope`,
+		},
+		{
+			name:   "forbidden - scoped permission does not grant wildcard attestation",
+			saName: sa.Name,
+			spec: authenticationv1.TokenRequestSpec{
+				Audiences:      []string{validatingAudience},
+				BoundObjectRef: validatingRef(validating.Name, validating.UID),
+				Attestations: map[string]authenticationv1.AttestationValue{
+					authenticationv1.AttestationAdmissionReviewAPIGroups: {"*"},
+				},
+			},
+			errContains: `User "system:serviceaccount:myns:test-svcacct" cannot attest resource "admissionReviewAPIGroups" in API group "authentication.k8s.io" at the cluster scope`,
 		},
 
 		// Validation errors
@@ -1501,8 +1522,8 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			name:   "validation - empty attestation value",
 			saName: sa.Name,
 			spec: authenticationv1.TokenRequestSpec{
-				Audiences:      []string{"api"},
-				BoundObjectRef: validatingRef(validating.Name, ""),
+				Audiences:      []string{validatingAudience},
+				BoundObjectRef: validatingRef(validating.Name, validating.UID),
 				Attestations: map[string]authenticationv1.AttestationValue{
 					authenticationv1.AttestationAdmissionReviewAPIGroups: {},
 				},
@@ -1513,8 +1534,8 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			name:   "validation - unknown attestation key",
 			saName: sa.Name,
 			spec: authenticationv1.TokenRequestSpec{
-				Audiences:      []string{"api"},
-				BoundObjectRef: validatingRef(validating.Name, ""),
+				Audiences:      []string{validatingAudience},
+				BoundObjectRef: validatingRef(validating.Name, validating.UID),
 				Attestations: map[string]authenticationv1.AttestationValue{
 					"bogusKey": {"val"},
 				},
@@ -1525,8 +1546,8 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			name:   "validation - multiple values for admissionReviewAPIGroups",
 			saName: sa.Name,
 			spec: authenticationv1.TokenRequestSpec{
-				Audiences:      []string{"api"},
-				BoundObjectRef: validatingRef(validating.Name, ""),
+				Audiences:      []string{validatingAudience},
+				BoundObjectRef: validatingRef(validating.Name, validating.UID),
 				Attestations: map[string]authenticationv1.AttestationValue{
 					authenticationv1.AttestationAdmissionReviewAPIGroups: {"a", "b"},
 				},
@@ -1537,8 +1558,8 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			name:   "validation - empty string value for admissionReviewAPIGroups",
 			saName: sa.Name,
 			spec: authenticationv1.TokenRequestSpec{
-				Audiences:      []string{"api"},
-				BoundObjectRef: validatingRef(validating.Name, ""),
+				Audiences:      []string{validatingAudience},
+				BoundObjectRef: validatingRef(validating.Name, validating.UID),
 				Attestations: map[string]authenticationv1.AttestationValue{
 					authenticationv1.AttestationAdmissionReviewAPIGroups: {""},
 				},
@@ -1593,7 +1614,7 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			saName: sa.Name,
 			spec: authenticationv1.TokenRequestSpec{
 				Audiences:      []string{"https://validate.test", "https://other.test"},
-				BoundObjectRef: validatingRef(validating.Name, ""),
+				BoundObjectRef: validatingRef(validating.Name, validating.UID),
 				Attestations:   appsAttestation,
 			},
 			errContains: `exactly one audience is required when bound object ref is a webhook configuration`,
@@ -1603,7 +1624,7 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			saName: sa.Name,
 			spec: authenticationv1.TokenRequestSpec{
 				Audiences:      []string{"https://wrong.audience.test"},
-				BoundObjectRef: validatingRef(validating.Name, ""),
+				BoundObjectRef: validatingRef(validating.Name, validating.UID),
 				Attestations:   appsAttestation,
 			},
 			errContains: `audience "https://wrong.audience.test" does not match any webhook client config in the bound object`,
@@ -1615,7 +1636,7 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			saName: sa.Name,
 			spec: authenticationv1.TokenRequestSpec{
 				Audiences:      []string{validatingAudience},
-				BoundObjectRef: validatingRef(validating.Name, ""),
+				BoundObjectRef: validatingRef(validating.Name, validating.UID),
 				Attestations: map[string]authenticationv1.AttestationValue{
 					authenticationv1.AttestationAdmissionReviewAPIGroups: {"networking.k8s.io"},
 				},
@@ -1812,7 +1833,7 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			},
 		}
 
-		treq, err := cs.CoreV1().ServiceAccounts(ns.Name).CreateToken(tCtx, sa.Name, treq, metav1.CreateOptions{})
+		treq, err := cs.CoreV1().ServiceAccounts(ns.Name).CreateToken(tCtx, saWildcard.Name, treq, metav1.CreateOptions{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
