@@ -1243,95 +1243,6 @@ func TestServiceAccountTokenCreate(t *testing.T) {
 	})
 }
 
-// createAttestRoleAndBinding grants a service account the "attest" verb on the
-// given resources/resourceNames in the authentication.k8s.io API group, plus
-// the ability to create serviceaccounts/token in the given namespace.
-func createAttestRoleAndBinding(t *testing.T, client clientset.Interface, saName, ns, roleName string, resources, resourceNames []string) {
-	t.Helper()
-
-	cr := &rbacv1.ClusterRole{
-		ObjectMeta: metav1.ObjectMeta{Name: roleName},
-		Rules: []rbacv1.PolicyRule{
-			{
-				Verbs:         []string{"attest"},
-				APIGroups:     []string{"authentication.k8s.io"},
-				Resources:     resources,
-				ResourceNames: resourceNames,
-			},
-		},
-	}
-	_, err := client.RbacV1().ClusterRoles().Create(context.TODO(), cr, metav1.CreateOptions{})
-	if err != nil && !apierrors.IsAlreadyExists(err) {
-		t.Fatal(err)
-	}
-
-	crb := &rbacv1.ClusterRoleBinding{
-		ObjectMeta: metav1.ObjectMeta{Name: roleName + "-binding"},
-		Subjects:   []rbacv1.Subject{{Kind: "ServiceAccount", Name: saName, Namespace: ns}},
-		RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: roleName},
-	}
-	_, err = client.RbacV1().ClusterRoleBindings().Create(context.TODO(), crb, metav1.CreateOptions{})
-	if err != nil && !apierrors.IsAlreadyExists(err) {
-		t.Fatal(err)
-	}
-
-	r := &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{Name: roleName + "-token", Namespace: ns},
-		Rules: []rbacv1.PolicyRule{
-			{
-				APIGroups: []string{""},
-				Resources: []string{"serviceaccounts/token"},
-				Verbs:     []string{"create"},
-			},
-		},
-	}
-	_, err = client.RbacV1().Roles(ns).Create(context.TODO(), r, metav1.CreateOptions{})
-	if err != nil && !apierrors.IsAlreadyExists(err) {
-		t.Fatal(err)
-	}
-
-	rb := &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{Name: roleName + "-token-binding", Namespace: ns},
-		Subjects:   []rbacv1.Subject{{Kind: "ServiceAccount", Name: saName, Namespace: ns}},
-		RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: roleName + "-token"},
-	}
-	_, err = client.RbacV1().RoleBindings(ns).Create(context.TODO(), rb, metav1.CreateOptions{})
-	if err != nil && !apierrors.IsAlreadyExists(err) {
-		t.Fatal(err)
-	}
-}
-
-// createTokenCreateOnlyRoleAndBinding grants a service account only the ability
-// to create serviceaccounts/token, with no attest permission.
-func createTokenCreateOnlyRoleAndBinding(t *testing.T, client clientset.Interface, saName, ns, roleName string) {
-	t.Helper()
-
-	r := &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{Name: roleName, Namespace: ns},
-		Rules: []rbacv1.PolicyRule{
-			{
-				APIGroups: []string{""},
-				Resources: []string{"serviceaccounts/token"},
-				Verbs:     []string{"create"},
-			},
-		},
-	}
-	_, err := client.RbacV1().Roles(ns).Create(context.TODO(), r, metav1.CreateOptions{})
-	if err != nil && !apierrors.IsAlreadyExists(err) {
-		t.Fatal(err)
-	}
-
-	rb := &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{Name: roleName + "-binding", Namespace: ns},
-		Subjects:   []rbacv1.Subject{{Kind: "ServiceAccount", Name: saName, Namespace: ns}},
-		RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: roleName},
-	}
-	_, err = client.RbacV1().RoleBindings(ns).Create(context.TODO(), rb, metav1.CreateOptions{})
-	if err != nil && !apierrors.IsAlreadyExists(err) {
-		t.Fatal(err)
-	}
-}
-
 func TestServiceAccountTokenAttestations(t *testing.T) {
 	const iss = "https://foo.bar.example.com"
 	aud := authenticator.Audiences{"api"}
@@ -1388,8 +1299,8 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 		Webhooks: []admissionregistrationv1.ValidatingWebhook{
 			{
 				Name:                    "validate.webhook.test",
-				ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: ptr.To("https://validate.test")},
-				SideEffects:             ptr.To(admissionregistrationv1.SideEffectClassNone),
+				ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: new("https://validate.test")},
+				SideEffects:             new(admissionregistrationv1.SideEffectClassNone),
 				AdmissionReviewVersions: []string{"v1"},
 			},
 			{
@@ -1398,11 +1309,11 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 					Service: &admissionregistrationv1.ServiceReference{
 						Namespace: "webhook-ns",
 						Name:      "webhook-svc",
-						Port:      ptr.To(int32(8443)),
-						Path:      ptr.To("/validate"),
+						Port:      new(int32(8443)),
+						Path:      new("/validate"),
 					},
 				},
-				SideEffects:             ptr.To(admissionregistrationv1.SideEffectClassNone),
+				SideEffects:             new(admissionregistrationv1.SideEffectClassNone),
 				AdmissionReviewVersions: []string{"v1"},
 			},
 		},
@@ -1411,12 +1322,26 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 
 	mutating, delMutating := createDeleteMutating(t, cs, &admissionregistrationv1.MutatingWebhookConfiguration{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-mutating-webhook"},
-		Webhooks: []admissionregistrationv1.MutatingWebhook{{
-			Name:                    "mutate.webhook.test",
-			ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: ptr.To("https://mutate.test")},
-			SideEffects:             ptr.To(admissionregistrationv1.SideEffectClassNone),
-			AdmissionReviewVersions: []string{"v1"},
-		}},
+		Webhooks: []admissionregistrationv1.MutatingWebhook{
+			{
+				Name:                    "mutate.webhook.test",
+				ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: new("https://mutate.test")},
+				SideEffects:             new(admissionregistrationv1.SideEffectClassNone),
+				AdmissionReviewVersions: []string{"v1"},
+			},
+			{
+				Name: "mutate.service.webhook.test",
+				ClientConfig: admissionregistrationv1.WebhookClientConfig{
+					Service: &admissionregistrationv1.ServiceReference{
+						Namespace: "webhook-ns",
+						Name:      "mutating-svc",
+						Port:      new(int32(9443)),
+					},
+				},
+				SideEffects:             new(admissionregistrationv1.SideEffectClassNone),
+				AdmissionReviewVersions: []string{"v1"},
+			},
+		},
 	})
 	defer delMutating()
 
@@ -1704,13 +1629,13 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 	// --- Success cases (table-driven) ---
 
 	type webhookKind struct {
-		kind              string
-		webhookName       string
-		webhookUID        types.UID
-		audience          string
-		jwtClaimKey       string // e.g. "validatingwebhookconfiguration"
-		extraNameKey      string
-		extraUIDKey       string
+		kind         string
+		webhookName  string
+		webhookUID   types.UID
+		audience     string
+		jwtClaimKey  string // e.g. "validatingwebhookconfiguration"
+		extraNameKey string
+		extraUIDKey  string
 	}
 
 	webhookKinds := []webhookKind{
@@ -1804,29 +1729,61 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 		}
 	}
 
-	// Service-configured webhook audience test
-	t.Run("ValidatingWebhookConfiguration with service audience", func(t *testing.T) {
-		serviceAudience := "https://webhook-svc.webhook-ns.svc:8443/validate"
-		treq := &authenticationv1.TokenRequest{
-			Spec: authenticationv1.TokenRequestSpec{
-				Audiences: []string{serviceAudience},
-				BoundObjectRef: &authenticationv1.BoundObjectReference{
-					Kind:       "ValidatingWebhookConfiguration",
-					APIVersion: "admissionregistration.k8s.io/v1",
-					Name:       validating.Name,
+	// Audience validation success cases for all 4 webhook×config combinations
+	audienceCases := []struct {
+		name     string
+		kind     string
+		webhook  string
+		audience string
+	}{
+		{
+			name:     "ValidatingWebhookConfiguration with URL audience",
+			kind:     "ValidatingWebhookConfiguration",
+			webhook:  validating.Name,
+			audience: "https://validate.test",
+		},
+		{
+			name:     "ValidatingWebhookConfiguration with service audience",
+			kind:     "ValidatingWebhookConfiguration",
+			webhook:  validating.Name,
+			audience: "https://webhook-svc.webhook-ns.svc:8443/validate",
+		},
+		{
+			name:     "MutatingWebhookConfiguration with URL audience",
+			kind:     "MutatingWebhookConfiguration",
+			webhook:  mutating.Name,
+			audience: "https://mutate.test",
+		},
+		{
+			name:     "MutatingWebhookConfiguration with service audience",
+			kind:     "MutatingWebhookConfiguration",
+			webhook:  mutating.Name,
+			audience: "https://mutating-svc.webhook-ns.svc:9443",
+		},
+	}
+
+	for _, ac := range audienceCases {
+		t.Run(ac.name, func(t *testing.T) {
+			treq := &authenticationv1.TokenRequest{
+				Spec: authenticationv1.TokenRequestSpec{
+					Audiences: []string{ac.audience},
+					BoundObjectRef: &authenticationv1.BoundObjectReference{
+						Kind:       ac.kind,
+						APIVersion: "admissionregistration.k8s.io/v1",
+						Name:       ac.webhook,
+					},
+					Attestations: appsAttestation,
 				},
-				Attestations: appsAttestation,
-			},
-		}
+			}
 
-		treq, err := cs.CoreV1().ServiceAccounts(ns.Name).CreateToken(tCtx, sa.Name, treq, metav1.CreateOptions{})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+			treq, err := cs.CoreV1().ServiceAccounts(ns.Name).CreateToken(tCtx, sa.Name, treq, metav1.CreateOptions{})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 
-		checkPayload(t, treq.Status.Token, fmt.Sprintf(`["%s"]`, serviceAudience), "aud")
-		checkPayload(t, treq.Status.Token, `"test-validating-webhook"`, "kubernetes.io", "validatingwebhookconfiguration", "name")
-	})
+			checkPayload(t, treq.Status.Token, fmt.Sprintf(`["%s"]`, ac.audience), "aud")
+		})
+	}
 
 	// --- Lifecycle cases: token invalidation on webhook deletion ---
 
@@ -1836,8 +1793,8 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "test-validating-lifecycle"},
 			Webhooks: []admissionregistrationv1.ValidatingWebhook{{
 				Name:                    "lifecycle.validate.webhook.test",
-				ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: ptr.To("https://lifecycle.validate.test")},
-				SideEffects:             ptr.To(admissionregistrationv1.SideEffectClassNone),
+				ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: new("https://lifecycle.validate.test")},
+				SideEffects:             new(admissionregistrationv1.SideEffectClassNone),
 				AdmissionReviewVersions: []string{"v1"},
 			}},
 		})
@@ -1869,8 +1826,8 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "test-mutating-lifecycle"},
 			Webhooks: []admissionregistrationv1.MutatingWebhook{{
 				Name:                    "lifecycle.mutate.webhook.test",
-				ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: ptr.To("https://lifecycle.mutate.test")},
-				SideEffects:             ptr.To(admissionregistrationv1.SideEffectClassNone),
+				ClientConfig:            admissionregistrationv1.WebhookClientConfig{URL: new("https://lifecycle.mutate.test")},
+				SideEffects:             new(admissionregistrationv1.SideEffectClassNone),
 				AdmissionReviewVersions: []string{"v1"},
 			}},
 		})
@@ -1896,6 +1853,95 @@ func TestServiceAccountTokenAttestations(t *testing.T) {
 		delMut()
 		doTokenReviewWithAudiences(t, cs, treq, treq.Spec.Audiences, true)
 	})
+}
+
+// createAttestRoleAndBinding grants a service account the "attest" verb on the
+// given resources/resourceNames in the authentication.k8s.io API group, plus
+// the ability to create serviceaccounts/token in the given namespace.
+func createAttestRoleAndBinding(t *testing.T, client clientset.Interface, saName, ns, roleName string, resources, resourceNames []string) {
+	t.Helper()
+
+	cr := &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{Name: roleName},
+		Rules: []rbacv1.PolicyRule{
+			{
+				Verbs:         []string{"attest"},
+				APIGroups:     []string{"authentication.k8s.io"},
+				Resources:     resources,
+				ResourceNames: resourceNames,
+			},
+		},
+	}
+	_, err := client.RbacV1().ClusterRoles().Create(context.TODO(), cr, metav1.CreateOptions{})
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		t.Fatal(err)
+	}
+
+	crb := &rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: roleName + "-binding"},
+		Subjects:   []rbacv1.Subject{{Kind: "ServiceAccount", Name: saName, Namespace: ns}},
+		RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: roleName},
+	}
+	_, err = client.RbacV1().ClusterRoleBindings().Create(context.TODO(), crb, metav1.CreateOptions{})
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		t.Fatal(err)
+	}
+
+	r := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: roleName + "-token", Namespace: ns},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{""},
+				Resources: []string{"serviceaccounts/token"},
+				Verbs:     []string{"create"},
+			},
+		},
+	}
+	_, err = client.RbacV1().Roles(ns).Create(context.TODO(), r, metav1.CreateOptions{})
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		t.Fatal(err)
+	}
+
+	rb := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: roleName + "-token-binding", Namespace: ns},
+		Subjects:   []rbacv1.Subject{{Kind: "ServiceAccount", Name: saName, Namespace: ns}},
+		RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: roleName + "-token"},
+	}
+	_, err = client.RbacV1().RoleBindings(ns).Create(context.TODO(), rb, metav1.CreateOptions{})
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		t.Fatal(err)
+	}
+}
+
+// createTokenCreateOnlyRoleAndBinding grants a service account only the ability
+// to create serviceaccounts/token, with no attest permission.
+func createTokenCreateOnlyRoleAndBinding(t *testing.T, client clientset.Interface, saName, ns, roleName string) {
+	t.Helper()
+
+	r := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: roleName, Namespace: ns},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{""},
+				Resources: []string{"serviceaccounts/token"},
+				Verbs:     []string{"create"},
+			},
+		},
+	}
+	_, err := client.RbacV1().Roles(ns).Create(context.TODO(), r, metav1.CreateOptions{})
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		t.Fatal(err)
+	}
+
+	rb := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: roleName + "-binding", Namespace: ns},
+		Subjects:   []rbacv1.Subject{{Kind: "ServiceAccount", Name: saName, Namespace: ns}},
+		RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: roleName},
+	}
+	_, err = client.RbacV1().RoleBindings(ns).Create(context.TODO(), rb, metav1.CreateOptions{})
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		t.Fatal(err)
+	}
 }
 
 func doTokenReview(t *testing.T, cs clientset.Interface, treq *authenticationv1.TokenRequest, expectErr bool) authenticationv1.UserInfo {
@@ -2039,7 +2085,7 @@ func createDeleteValidating(t *testing.T, cs clientset.Interface, validating *ad
 		}
 		done = true
 		if err := cs.AdmissionregistrationV1().ValidatingWebhookConfigurations().Delete(context.TODO(), validating.Name, metav1.DeleteOptions{
-			GracePeriodSeconds: ptr.To(int64(0)),
+			GracePeriodSeconds: new(int64(0)),
 		}); err != nil {
 			t.Fatalf("err: %v", err)
 		}
@@ -2060,7 +2106,7 @@ func createDeleteMutating(t *testing.T, cs clientset.Interface, mutating *admiss
 		}
 		done = true
 		if err := cs.AdmissionregistrationV1().MutatingWebhookConfigurations().Delete(context.TODO(), mutating.Name, metav1.DeleteOptions{
-			GracePeriodSeconds: ptr.To(int64(0)),
+			GracePeriodSeconds: new(int64(0)),
 		}); err != nil {
 			t.Fatalf("err: %v", err)
 		}
