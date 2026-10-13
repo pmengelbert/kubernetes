@@ -147,6 +147,21 @@ func NewWebhook(handler *admission.Handler, configFile io.Reader, sourceFactory 
 	}
 	// Set defaults which may be overridden later.
 	cm.SetAuthenticationInfoResolver(authInfoResolver)
+	// cm.SetAuthenticationInfoResolverWrapper(func(air webhookutil.AuthenticationInfoResolver) webhookutil.AuthenticationInfoResolver {
+	// 	return &webhookutil.AuthenticationInfoResolverDelegator{
+	// 		ClientConfigForFunc: func(hostPort string) (*rest.Config, error) {
+	// cfg, err := air.ClientConfigFor(hostPort)
+	// if err != nil {
+	// return nil, err
+	// }
+
+	// cfg.BearerToken
+	// 		},
+	// 		ClientConfigForServiceFunc: func(a string, b string, c int) (*rest.Config, error) {
+	// 			panic("not implemented")
+	// 		},
+	// 	}
+	// })
 	cm.SetServiceResolver(webhookutil.NewDefaultServiceResolver())
 
 	return &Webhook{

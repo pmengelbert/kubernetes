@@ -35,6 +35,7 @@ import (
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/apiserver/pkg/util/x509metrics"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/transport"
 	"k8s.io/utils/lru"
 	netutils "k8s.io/utils/net"
 )
@@ -65,6 +66,7 @@ type ClientManager struct {
 	authInfoResolver     AuthenticationInfoResolver
 	serviceResolver      ServiceResolver
 	negotiatedSerializer runtime.NegotiatedSerializer
+	tokenSource          transport.ResettableTokenSource
 	cache                *lru.Cache
 }
 
@@ -82,7 +84,12 @@ func NewClientManager(gvs []schema.GroupVersion, addToSchemaFuncs ...func(s *run
 		negotiatedSerializer: serializer.NegotiatedSerializerWrapper(runtime.SerializerInfo{
 			Serializer: serializer.NewCodecFactory(hookScheme).LegacyCodec(gvs...),
 		}),
+		// tokenSource: transport.NewCachedTokenSource(),
 	}, nil
+}
+
+func (cm *ClientManager) SetTokenSource(ts transport.ResettableTokenSource) {
+	cm.tokenSource = ts
 }
 
 // SetAuthenticationInfoResolverWrapper sets the
@@ -129,6 +136,8 @@ func (cm *ClientManager) HookClient(cc ClientConfig) (*rest.RESTClient, error) {
 	if err != nil {
 		return nil, err
 	}
+	// t, err := cm.tokenSource.Token()
+	// tkn := t.AccessToken
 	if client, ok := cm.cache.Get(string(cacheKey)); ok {
 		return client.(*rest.RESTClient), nil
 	}
@@ -137,6 +146,10 @@ func (cm *ClientManager) HookClient(cc ClientConfig) (*rest.RESTClient, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	cfg.Wrap(func(rt http.RoundTripper) http.RoundTripper {
+		rt.RoundTrip()
+	})
 
 	client, err := rest.UnversionedRESTClientFor(cfg)
 	if err == nil {
