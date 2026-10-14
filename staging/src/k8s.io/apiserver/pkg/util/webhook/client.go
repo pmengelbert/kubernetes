@@ -35,7 +35,6 @@ import (
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/apiserver/pkg/util/x509metrics"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/transport"
 	"k8s.io/utils/lru"
 	netutils "k8s.io/utils/net"
 )
@@ -66,8 +65,8 @@ type ClientManager struct {
 	authInfoResolver     AuthenticationInfoResolver
 	serviceResolver      ServiceResolver
 	negotiatedSerializer runtime.NegotiatedSerializer
-	tokenSource          transport.ResettableTokenSource
-	cache                *lru.Cache
+	// tokenSource          transport.ResettableTokenSource
+	cache *lru.Cache
 }
 
 // NewClientManager creates a clientManager.
@@ -88,9 +87,9 @@ func NewClientManager(gvs []schema.GroupVersion, addToSchemaFuncs ...func(s *run
 	}, nil
 }
 
-func (cm *ClientManager) SetTokenSource(ts transport.ResettableTokenSource) {
-	cm.tokenSource = ts
-}
+// func (cm *ClientManager) SetTokenSource(ts transport.ResettableTokenSource) {
+// 	cm.tokenSource = ts
+// }
 
 // SetAuthenticationInfoResolverWrapper sets the
 // AuthenticationInfoResolverWrapper.

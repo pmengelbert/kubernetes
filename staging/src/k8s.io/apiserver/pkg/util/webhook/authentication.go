@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/oauth2"
 
 	corev1 "k8s.io/api/core/v1"
 	utilnet "k8s.io/apimachinery/pkg/util/net"
@@ -33,6 +34,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/client-go/transport"
 	tracing "k8s.io/component-base/tracing"
 )
 
@@ -57,6 +59,11 @@ func NewDefaultAuthenticationInfoResolverWrapper(
 				if err != nil {
 					return nil, err
 				}
+				ret.Wrap(func(rt http.RoundTripper) http.RoundTripper {
+					return transport.TokenSourceWrapTransport(&webhookAuthenticationTokenSource{src: func() (*oauth2.Token, error) {
+						return nil, nil
+					}})(rt)
+				})
 				ret.Wrap(tracing.WrapperFor(tp))
 
 				if egressSelector != nil {
