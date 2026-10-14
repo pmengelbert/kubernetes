@@ -17,6 +17,8 @@ limitations under the License.
 package webhook
 
 import (
+	"fmt"
+	"strings"
 	"sync"
 
 	v1 "k8s.io/api/admissionregistration/v1"
@@ -31,6 +33,7 @@ import (
 	webhookutil "k8s.io/apiserver/pkg/util/webhook"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/transport"
 )
 
 // WebhookAccessor provides a common interface to both mutating and validating webhook types.
@@ -89,7 +92,16 @@ type WebhookAccessor interface {
 	// GetType returns the type of the accessor (validate or admit)
 	GetType() string
 
+	// GetKubeClient returns a client for communicating with the API Server
 	GetKubeClient() kubernetes.Interface
+
+	// GetToken returns an authentication token, valid for this webhook and the
+	// given groupversion, for the given service account name
+	GetAudience() string
+
+	// GetToken returns an authentication token, valid for this webhook and the
+	// given groupversion, for the given service account name
+	GetToken(string, string, string) (string, error)
 }
 
 // NewMutatingWebhookAccessor creates an accessor for a MutatingWebhook.
@@ -119,6 +131,31 @@ type mutatingWebhookAccessor struct {
 	compiledMatcher matchconditions.Matcher
 
 	kubeClient kubernetes.Interface
+
+	tokenLock sync.Mutex
+	tokens    map[string]transport.ResettableTokenSource
+}
+
+// GetToken returns an authentication token, valid for this webhook and the
+// given groupversion, for the given service account name
+func (m *mutatingWebhookAccessor) GetAudience() string {
+	return getAudience(m)
+}
+
+// GetToken returns an authentication token, valid for this webhook and the
+// given groupversion, for the given service account name
+func (m *mutatingWebhookAccessor) GetToken(namespace, saName, groupversion string) (string, error) {
+	m.tokenLock.Lock()
+	defer m.tokenLock.Unlock()
+
+	if tokenSrc, ok := m.tokens[groupversion]; ok {
+		return unwrapToken(tokenSrc)
+	}
+
+	tokenSource := NewWebhookTokenSource(m, namespace, saName, groupversion)
+	m.tokens[groupversion] = tokenSource
+
+	return unwrapToken(tokenSource)
 }
 
 func (m *mutatingWebhookAccessor) GetUID() string {
@@ -262,6 +299,31 @@ type validatingWebhookAccessor struct {
 	compiledMatcher matchconditions.Matcher
 
 	kubeClient kubernetes.Interface
+
+	tokenLock sync.Mutex
+	tokens    map[string]transport.ResettableTokenSource
+}
+
+// GetToken returns an authentication token, valid for this webhook and the
+// given groupversion, for the given service account name
+func (v *validatingWebhookAccessor) GetToken(namespace string, saName string, groupversion string) (string, error) {
+	v.tokenLock.Lock()
+	defer v.tokenLock.Unlock()
+
+	if tokenSrc, ok := v.tokens[groupversion]; ok {
+		return unwrapToken(tokenSrc)
+	}
+
+	tokenSource := NewWebhookTokenSource(v, namespace, saName, groupversion)
+	v.tokens[groupversion] = tokenSource
+
+	return unwrapToken(tokenSource)
+}
+
+// GetToken returns an authentication token, valid for this webhook and the
+// given groupversion, for the given service account name
+func (v *validatingWebhookAccessor) GetAudience() string {
+	return getAudience(v)
 }
 
 func (v *validatingWebhookAccessor) GetUID() string {
@@ -318,7 +380,7 @@ func (v *validatingWebhookAccessor) GetParsedObjectSelector() (labels.Selector, 
 	return v.objectSelector, v.objectSelectorErr
 }
 
-func (m *validatingWebhookAccessor) GetType() string {
+func (v *validatingWebhookAccessor) GetType() string {
 	return "validate"
 }
 
@@ -402,4 +464,52 @@ func hookClientConfigForWebhook(w WebhookAccessor) webhookutil.ClientConfig {
 		}
 	}
 	return ret
+}
+
+func unwrapToken(tokenSrc transport.ResettableTokenSource) (string, error) {
+	token, err := tokenSrc.Token()
+	if err != nil {
+		return "", err
+	}
+
+	return token.AccessToken, nil
+}
+
+func getAudience(w WebhookAccessor) string {
+	cc := w.GetClientConfig()
+	if cc.URL != nil {
+		return *cc.URL
+	}
+
+	path := "/"
+	port := new(int32(443))
+
+	if cc.Service == nil {
+		panic("unreachable, validation error")
+	}
+
+	if cc.Service.Path != nil {
+		path = *cc.Service.Path
+		if !strings.HasPrefix(path, "/") {
+			// NOTE: If *cc.Service.Path is "", it now becomes "/" with the full
+			// audience resolving to "https://fooname.barspace.svc:443/".
+			// If instead *cc.Service.Path was something else without a leading
+			// separator, such as "path/to/hook", the full audience resolves to
+			// "https://fooname.barspace.svc:443/path/to/hook".
+			path = "/" + path
+		}
+
+		// else cc.Service.Path already has a leading separator, e.g.
+		// "/path/to/hook", so none is added. The full audience in this case
+		// resolves to "https://fooname.barspace.svc:443/path/to/hook"
+	}
+
+	// else cc.Service.Path is not provided, so path is "/" and the full audience
+	// resolves to "https://fooname.barspace.svc:443/"
+
+	if cc.Service.Port != nil {
+		port = cc.Service.Port
+	}
+
+	return fmt.Sprintf("https://%s.%s.svc:%d%s", cc.Service.Name, cc.Service.Namespace, port, path)
 }

@@ -65,8 +65,7 @@ type ClientManager struct {
 	authInfoResolver     AuthenticationInfoResolver
 	serviceResolver      ServiceResolver
 	negotiatedSerializer runtime.NegotiatedSerializer
-	// tokenSource          transport.ResettableTokenSource
-	cache *lru.Cache
+	cache                *lru.Cache
 }
 
 // NewClientManager creates a clientManager.
@@ -135,8 +134,7 @@ func (cm *ClientManager) HookClient(cc ClientConfig) (*rest.RESTClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	// t, err := cm.tokenSource.Token()
-	// tkn := t.AccessToken
+
 	if client, ok := cm.cache.Get(string(cacheKey)); ok {
 		return client.(*rest.RESTClient), nil
 	}
@@ -145,10 +143,6 @@ func (cm *ClientManager) HookClient(cc ClientConfig) (*rest.RESTClient, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	cfg.Wrap(func(rt http.RoundTripper) http.RoundTripper {
-		rt.RoundTrip()
-	})
 
 	client, err := rest.UnversionedRESTClientFor(cfg)
 	if err == nil {

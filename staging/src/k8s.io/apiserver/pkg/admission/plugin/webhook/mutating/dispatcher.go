@@ -51,6 +51,7 @@ import (
 	"k8s.io/apiserver/pkg/warning"
 	"k8s.io/component-base/tracing"
 	"k8s.io/klog/v2"
+	"k8s.io/kubernetes/pkg/apis/core"
 )
 
 const (
@@ -143,10 +144,7 @@ func (a *mutatingDispatcher) Dispatch(ctx context.Context, attr admission.Attrib
 			continue
 		}
 
-		token, err := a.getWebhookAuthenticationToken(ctx, hook)
-		if err != nil {
-			return err
-		}
+		accessor := hook
 
 		hook, ok := invocation.Webhook.GetMutatingWebhook()
 		if !ok {
@@ -170,6 +168,11 @@ func (a *mutatingDispatcher) Dispatch(ctx context.Context, attr admission.Attrib
 		round := 0
 		if reinvokeCtx.IsReinvoke() {
 			round = 1
+		}
+
+		token, err := accessor.GetToken(core.NamespaceSystem, "webhook-auth", fmt.Sprintf("%s/%s", invocation.Kind.Group, invocation.Kind.Version))
+		if err != nil {
+			return err
 		}
 
 		annotator := newWebhookAnnotator(versionedAttr, round, i, hook.Name, invocation.Webhook.GetConfigurationName())

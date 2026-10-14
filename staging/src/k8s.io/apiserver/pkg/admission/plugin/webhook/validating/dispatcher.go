@@ -42,6 +42,7 @@ import (
 	"k8s.io/apiserver/pkg/warning"
 	"k8s.io/component-base/tracing"
 	"k8s.io/klog/v2"
+	"k8s.io/kubernetes/pkg/apis/core"
 )
 
 const (
@@ -166,7 +167,7 @@ func (d *validatingDispatcher) Dispatch(ctx context.Context, attr admission.Attr
 				},
 			)
 
-			token, err := d.getWebhookAuthenticationToken(ctx, accessor)
+			token, err := accessor.GetToken(core.NamespaceSystem, "webhook-auth", fmt.Sprintf("%s/%s", invocation.Kind.Group, invocation.Kind.Version), func() context.Context { return ctx })
 			if err != nil {
 				utilruntime.HandleError(fmt.Errorf("validating webhook dispatch could not get webhook authentication token: %w", err))
 				return
