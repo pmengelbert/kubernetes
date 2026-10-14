@@ -170,7 +170,7 @@ func (a *mutatingDispatcher) Dispatch(ctx context.Context, attr admission.Attrib
 			round = 1
 		}
 
-		token, err := accessor.GetToken(core.NamespaceSystem, "webhook-auth", fmt.Sprintf("%s/%s", invocation.Kind.Group, invocation.Kind.Version))
+		token, err := accessor.GetToken(core.NamespaceSystem, "webhook-auth", "*")
 		if err != nil {
 			return err
 		}

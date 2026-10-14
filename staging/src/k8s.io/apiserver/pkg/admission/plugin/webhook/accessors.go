@@ -106,7 +106,7 @@ type WebhookAccessor interface {
 
 // NewMutatingWebhookAccessor creates an accessor for a MutatingWebhook.
 func NewMutatingWebhookAccessor(uid, configurationName string, configurationUID types.UID, h *v1.MutatingWebhook, kubeClient kubernetes.Interface) WebhookAccessor {
-	return &mutatingWebhookAccessor{uid: uid, configurationName: configurationName, configurationUID: configurationUID, MutatingWebhook: h, kubeClient: kubeClient}
+	return &mutatingWebhookAccessor{uid: uid, configurationName: configurationName, configurationUID: configurationUID, MutatingWebhook: h, kubeClient: kubeClient, tokens: make(map[string]transport.ResettableTokenSource)}
 }
 
 type mutatingWebhookAccessor struct {
@@ -274,7 +274,7 @@ func (m *mutatingWebhookAccessor) GetKubeClient() kubernetes.Interface {
 
 // NewValidatingWebhookAccessor creates an accessor for a ValidatingWebhook.
 func NewValidatingWebhookAccessor(uid, configurationName string, configurationUID types.UID, h *v1.ValidatingWebhook, kubeClient kubernetes.Interface) WebhookAccessor {
-	return &validatingWebhookAccessor{uid: uid, configurationName: configurationName, configurationUID: configurationUID, ValidatingWebhook: h, kubeClient: kubeClient}
+	return &validatingWebhookAccessor{uid: uid, configurationName: configurationName, configurationUID: configurationUID, ValidatingWebhook: h, kubeClient: kubeClient, tokens: make(map[string]transport.ResettableTokenSource)}
 }
 
 type validatingWebhookAccessor struct {

@@ -167,7 +167,7 @@ func (d *validatingDispatcher) Dispatch(ctx context.Context, attr admission.Attr
 				},
 			)
 
-			token, err := accessor.GetToken(core.NamespaceSystem, "webhook-auth", fmt.Sprintf("%s/%s", invocation.Kind.Group, invocation.Kind.Version))
+			token, err := accessor.GetToken(core.NamespaceSystem, "webhook-auth", "*")
 			if err != nil {
 				utilruntime.HandleError(fmt.Errorf("validating webhook dispatch could not get webhook authentication token: %w", err))
 				return
