@@ -13,17 +13,17 @@ import (
 
 type cachingTokenSource struct {
 	hook         WebhookAccessor
-	groupversion string
-	saName       string
 	namespace    string
+	saName       string
+	groupversion string
 }
 
 func NewWebhookTokenSource(hook WebhookAccessor, namespace, saName, groupversion string) transport.ResettableTokenSource {
 	return transport.NewCachedTokenSource(&cachingTokenSource{
 		hook:         hook,
+		namespace:    namespace,
 		saName:       saName,
 		groupversion: groupversion,
-		namespace:    namespace,
 	})
 }
 

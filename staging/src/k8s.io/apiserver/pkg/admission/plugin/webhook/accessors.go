@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/cache"
 	"k8s.io/apiserver/pkg/admission/plugin/cel"
 	"k8s.io/apiserver/pkg/admission/plugin/webhook/matchconditions"
 	"k8s.io/apiserver/pkg/admission/plugin/webhook/predicates/namespace"
@@ -132,7 +133,8 @@ type mutatingWebhookAccessor struct {
 
 	kubeClient kubernetes.Interface
 
-	tokenLock sync.Mutex
+	ttokens   cache.LRUExpireCache
+	tokenLock sync.RWMutex
 	tokens    map[string]transport.ResettableTokenSource
 }
 
@@ -145,12 +147,16 @@ func (m *mutatingWebhookAccessor) GetAudience() string {
 // GetToken returns an authentication token, valid for this webhook and the
 // given groupversion, for the given service account name
 func (m *mutatingWebhookAccessor) GetToken(namespace, saName, groupversion string) (string, error) {
+	cacheKey := namespace + "/" + saName + "/" + groupversion
+	m.tokenLock.RLock()
+	if tokenSrc, ok := m.ttokens.Get(groupversion); !ok {
+		m.tokenLock.RUnlock()
+		// slow path
+
+	}
+
 	m.tokenLock.Lock()
 	defer m.tokenLock.Unlock()
-
-	if tokenSrc, ok := m.tokens[groupversion]; ok {
-		return unwrapToken(tokenSrc)
-	}
 
 	tokenSource := NewWebhookTokenSource(m, namespace, saName, groupversion)
 	m.tokens[groupversion] = tokenSource
