@@ -88,10 +88,6 @@ func NewClientManager(gvs []schema.GroupVersion, addToSchemaFuncs ...func(s *run
 	}, nil
 }
 
-// func (cm *ClientManager) SetTokenSource(ts transport.ResettableTokenSource) {
-// 	cm.tokenSource = ts
-// }
-
 // SetAuthenticationInfoResolverWrapper sets the
 // AuthenticationInfoResolverWrapper.
 func (cm *ClientManager) SetAuthenticationInfoResolverWrapper(wrapper AuthenticationInfoResolverWrapper) {
@@ -270,8 +266,8 @@ func (cm *ClientManager) hookClientConfig(cc ClientConfig) (*rest.Config, error)
 	return complete(cfg)
 }
 
-func (cm *ClientManager) GetToken(ta TokenAttributes) (*oauth2.Token, error) {
-	return cm.tokenSource.Getter(ta).Token()
+func (cm *ClientManager) GetToken(a whAttrAccessor, ta TokenAttributes) (*oauth2.Token, error) {
+	return cm.tokenSource.Getter(a, ta).Token()
 }
 
 func isLocalHost(u *url.URL) bool {

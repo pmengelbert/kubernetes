@@ -167,11 +167,11 @@ func (d *validatingDispatcher) Dispatch(ctx context.Context, attr admission.Attr
 				},
 			)
 
-			token, err := d.cm.GetToken(webhookutil.TokenAttributes{
-				Hook:         accessor,
+			token, err := d.cm.GetToken(accessor, webhookutil.TokenAttributes{
 				Namespace:    core.NamespaceSystem,
 				SAName:       "webhook-auth",
 				GroupVersion: "*",
+				Audience:     accessor.GetAudience(),
 			})
 			if err != nil {
 				errCh <- err

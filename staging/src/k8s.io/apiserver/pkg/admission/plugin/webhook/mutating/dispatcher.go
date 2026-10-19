@@ -171,11 +171,11 @@ func (a *mutatingDispatcher) Dispatch(ctx context.Context, attr admission.Attrib
 		}
 
 		// core.NamespaceSystem, "webhook-auth", "*"
-		token, err := a.cm.GetToken(webhookutil.TokenAttributes{
-			Hook:         accessor,
+		token, err := a.cm.GetToken(accessor, webhookutil.TokenAttributes{
 			Namespace:    core.NamespaceSystem,
 			SAName:       "webhook-auth",
 			GroupVersion: "*",
+			Audience:     accessor.GetAudience(),
 		})
 		if err != nil {
 			return err
