@@ -99,10 +99,6 @@ type WebhookAccessor interface {
 	// GetToken returns an authentication token, valid for this webhook and the
 	// given groupversion, for the given service account name
 	GetAudience() string
-
-	// GetToken returns an authentication token, valid for this webhook and the
-	// given groupversion, for the given service account name
-	GetToken(string, string, string) (string, error)
 }
 
 // NewMutatingWebhookAccessor creates an accessor for a MutatingWebhook.
@@ -133,7 +129,8 @@ type mutatingWebhookAccessor struct {
 
 	kubeClient kubernetes.Interface
 
-	ttokens   cache.LRUExpireCache
+	ttokens cache.LRUExpireCache
+
 	tokenLock sync.RWMutex
 	tokens    map[string]transport.ResettableTokenSource
 }
@@ -152,7 +149,6 @@ func (m *mutatingWebhookAccessor) GetToken(namespace, saName, groupversion strin
 	if tokenSrc, ok := m.ttokens.Get(groupversion); !ok {
 		m.tokenLock.RUnlock()
 		// slow path
-
 	}
 
 	m.tokenLock.Lock()

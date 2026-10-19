@@ -170,13 +170,19 @@ func (a *mutatingDispatcher) Dispatch(ctx context.Context, attr admission.Attrib
 			round = 1
 		}
 
-		token, err := accessor.GetToken(core.NamespaceSystem, "webhook-auth", "*")
+		// core.NamespaceSystem, "webhook-auth", "*"
+		token, err := a.cm.GetToken(webhook.TokenAttributes{
+			Hook:         accessor,
+			Namespace:    core.NamespaceSystem,
+			SAName:       "webhook-auth",
+			GroupVersion: "*",
+		})
 		if err != nil {
 			return err
 		}
 
 		annotator := newWebhookAnnotator(versionedAttr, round, i, hook.Name, invocation.Webhook.GetConfigurationName())
-		changed, err := a.callAttrMutatingHook(ctx, hook, invocation, versionedAttr, annotator, o, round, i, token)
+		changed, err := a.callAttrMutatingHook(ctx, hook, invocation, versionedAttr, annotator, o, round, i, token.AccessToken)
 		ignoreClientCallFailures := hook.FailurePolicy != nil && *hook.FailurePolicy == admissionregistrationv1.Ignore
 		rejected := false
 		if err != nil {
