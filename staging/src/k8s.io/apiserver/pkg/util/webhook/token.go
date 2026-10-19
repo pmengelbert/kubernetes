@@ -11,7 +11,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilcache "k8s.io/apimachinery/pkg/util/cache"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/klog/v2"
 )
 
 const (
@@ -86,12 +85,9 @@ func (ts *cachedTokenSource) Token() (*oauth2.Token, error) {
 
 		now := time.Now()
 		if now.Before(cachedToken.Expiry) {
-			klog.Warning("aaaFOUND IN CACHE")
 			return &cachedToken, nil
 		}
-		klog.Warning("EXPIRY FOOLERY exp/now", cachedToken.Expiry, now)
 	}
-	klog.Warning("zzzNOT FOUND IN CACHE")
 
 	client := ts.accessor.GetKubeClient()
 
