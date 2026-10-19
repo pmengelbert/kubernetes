@@ -171,7 +171,7 @@ func (a *mutatingDispatcher) Dispatch(ctx context.Context, attr admission.Attrib
 		}
 
 		// core.NamespaceSystem, "webhook-auth", "*"
-		token, err := a.cm.GetToken(webhook.TokenAttributes{
+		token, err := a.cm.GetToken(webhookutil.TokenAttributes{
 			Hook:         accessor,
 			Namespace:    core.NamespaceSystem,
 			SAName:       "webhook-auth",

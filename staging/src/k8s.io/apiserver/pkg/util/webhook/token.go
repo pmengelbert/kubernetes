@@ -8,14 +8,12 @@ import (
 	"golang.org/x/oauth2"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	utilcache "k8s.io/apimachinery/pkg/util/cache"
+	"k8s.io/client-go/kubernetes"
 )
 
-const (
-	defaultCacheSize = 200
-)
-
-type TokenSourceGetter interface {
+type tokenSourceGetter interface {
 	Getter(ta TokenAttributes) oauth2.TokenSource
 }
 
@@ -42,8 +40,16 @@ func (tc *tokenCache) Getter(ta TokenAttributes) oauth2.TokenSource {
 	}
 }
 
+type whAttrAccessor interface {
+	GetKubeClient() kubernetes.Interface
+	GetConfigurationName() string
+	GetConfigurationUID() types.UID
+	GetType() string
+	GetAudience() string
+}
+
 type TokenAttributes struct {
-	Hook         WebhookAccessor
+	Hook         whAttrAccessor
 	Namespace    string
 	SAName       string
 	GroupVersion string

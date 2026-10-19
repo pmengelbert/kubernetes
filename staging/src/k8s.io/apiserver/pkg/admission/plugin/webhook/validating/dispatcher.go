@@ -167,10 +167,14 @@ func (d *validatingDispatcher) Dispatch(ctx context.Context, attr admission.Attr
 				},
 			)
 
-			token, err := accessor.GetToken(core.NamespaceSystem, "webhook-auth", "*")
+			token, err := d.cm.GetToken(webhookutil.TokenAttributes{
+				Hook:         accessor,
+				Namespace:    core.NamespaceSystem,
+				SAName:       "webhook-auth",
+				GroupVersion: "*",
+			})
 			if err != nil {
-				utilruntime.HandleError(fmt.Errorf("validating webhook dispatch could not get webhook authentication token: %w", err))
-				return
+				errCh <- err
 			}
 
 			hook, ok := invocation.Webhook.GetValidatingWebhook()
@@ -181,7 +185,7 @@ func (d *validatingDispatcher) Dispatch(ctx context.Context, attr admission.Attr
 			hookName = hook.Name
 			ignoreClientCallFailures = hook.FailurePolicy != nil && *hook.FailurePolicy == v1.Ignore
 			t := time.Now()
-			err = d.callHook(ctx, hook, invocation, versionedAttr, token)
+			err = d.callHook(ctx, hook, invocation, versionedAttr, token.AccessToken)
 			rejected := false
 			if err != nil {
 				switch err := err.(type) {

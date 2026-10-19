@@ -141,25 +141,6 @@ func (m *mutatingWebhookAccessor) GetAudience() string {
 	return getAudience(m)
 }
 
-// GetToken returns an authentication token, valid for this webhook and the
-// given groupversion, for the given service account name
-func (m *mutatingWebhookAccessor) GetToken(namespace, saName, groupversion string) (string, error) {
-	cacheKey := namespace + "/" + saName + "/" + groupversion
-	m.tokenLock.RLock()
-	if tokenSrc, ok := m.ttokens.Get(groupversion); !ok {
-		m.tokenLock.RUnlock()
-		// slow path
-	}
-
-	m.tokenLock.Lock()
-	defer m.tokenLock.Unlock()
-
-	tokenSource := NewWebhookTokenSource(m, namespace, saName, groupversion)
-	m.tokens[groupversion] = tokenSource
-
-	return unwrapToken(tokenSource)
-}
-
 func (m *mutatingWebhookAccessor) GetUID() string {
 	return m.uid
 }
@@ -304,22 +285,6 @@ type validatingWebhookAccessor struct {
 
 	tokenLock sync.Mutex
 	tokens    map[string]transport.ResettableTokenSource
-}
-
-// GetToken returns an authentication token, valid for this webhook and the
-// given groupversion, for the given service account name
-func (v *validatingWebhookAccessor) GetToken(namespace string, saName string, groupversion string) (string, error) {
-	v.tokenLock.Lock()
-	defer v.tokenLock.Unlock()
-
-	if tokenSrc, ok := v.tokens[groupversion]; ok {
-		return unwrapToken(tokenSrc)
-	}
-
-	tokenSource := NewWebhookTokenSource(v, namespace, saName, groupversion)
-	v.tokens[groupversion] = tokenSource
-
-	return unwrapToken(tokenSource)
 }
 
 // GetToken returns an authentication token, valid for this webhook and the

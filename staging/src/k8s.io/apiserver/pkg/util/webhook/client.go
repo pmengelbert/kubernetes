@@ -32,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/apiserver/pkg/admission/plugin/webhook"
 	"k8s.io/apiserver/pkg/features"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/apiserver/pkg/util/x509metrics"
@@ -68,7 +67,7 @@ type ClientManager struct {
 	serviceResolver      ServiceResolver
 	negotiatedSerializer runtime.NegotiatedSerializer
 	cache                *lru.Cache
-	tokenSource          webhook.TokenSourceGetter
+	tokenSource          tokenSourceGetter
 }
 
 // NewClientManager creates a clientManager.
@@ -85,7 +84,7 @@ func NewClientManager(gvs []schema.GroupVersion, addToSchemaFuncs ...func(s *run
 		negotiatedSerializer: serializer.NegotiatedSerializerWrapper(runtime.SerializerInfo{
 			Serializer: serializer.NewCodecFactory(hookScheme).LegacyCodec(gvs...),
 		}),
-		tokenSource: webhook.NewTokenCache(),
+		tokenSource: NewTokenCache(),
 	}, nil
 }
 
@@ -271,7 +270,7 @@ func (cm *ClientManager) hookClientConfig(cc ClientConfig) (*rest.Config, error)
 	return complete(cfg)
 }
 
-func (cm *ClientManager) GetToken(ta webhook.TokenAttributes) (*oauth2.Token, error) {
+func (cm *ClientManager) GetToken(ta TokenAttributes) (*oauth2.Token, error) {
 	return cm.tokenSource.Getter(ta).Token()
 }
 
